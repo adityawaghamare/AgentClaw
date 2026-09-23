@@ -93,7 +93,9 @@ export function Tasks() {
     }
 
     void poll();
-    const interval = setInterval(() => void poll(), 4000);
+    const interval = setInterval(() => {
+      if (document.visibilityState === "visible") void poll();
+    }, 7000);
 
     api.getEthPrice()
       .then(({ price }) => { if (active) setEthPrice(price); })

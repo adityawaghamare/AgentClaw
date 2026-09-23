@@ -8,6 +8,9 @@ node_modules/
 .yarn/cache/
 .yarn/unplugged/
 
+# 📝 PM2 Logs
+logs/
+
 # 🔨 Build & Compilation Outputs
 # dist/ (tracked for zero-memory Railway deployment)
 build/

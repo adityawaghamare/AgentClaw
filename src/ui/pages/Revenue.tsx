@@ -38,7 +38,9 @@ export function Revenue() {
     }
 
     void loadData();
-    const interval = setInterval(() => void loadData(), 4000);
+    const interval = setInterval(() => {
+      if (document.visibilityState === "visible") void loadData();
+    }, 7000);
     return () => {
       active = false;
       clearInterval(interval);

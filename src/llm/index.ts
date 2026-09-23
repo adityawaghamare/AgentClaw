@@ -117,18 +117,33 @@ function toOpenAIMessages(messages: LLMMessage[]): unknown[] {
           )
           .map((b) => {
             const extra = (b.extra_content || {}) as Record<string, unknown>;
-            // Gemini 3.x requires thought_signature to be present on function calls
-            const thoughtSig = extra.thought_signature || (extra.google as any)?.thought_signature || "thought_sig_gemini_bypass";
-            return {
+            const thoughtSig =
+              extra.thought_signature ||
+              (extra.google as any)?.thought_signature ||
+              undefined;
+
+            const toolCallObj: Record<string, unknown> = {
               id: b.id,
               type: "function",
               function: {
                 name: b.name,
                 arguments: JSON.stringify(b.input),
-                thought_signature: thoughtSig,
               },
-              thought_signature: thoughtSig,
             };
+
+            if (thoughtSig) {
+              toolCallObj.extra_content = {
+                google: {
+                  thought_signature: thoughtSig,
+                },
+              };
+              (toolCallObj.function as Record<string, unknown>).thought_signature = thoughtSig;
+              toolCallObj.thought_signature = thoughtSig;
+            } else if (extra.google) {
+              toolCallObj.extra_content = { google: extra.google };
+            }
+
+            return toolCallObj;
           });
 
         return {
@@ -246,9 +261,10 @@ function createOpenAICompatibleProvider(
       }
 
       // Valid production Google Gemini models supporting OpenAI tool calling
+      const configuredGemini = process.env.LLM_MODEL || config.model || "gemini-3.5-flash-lite";
       const GEMINI_MODEL_CASCADE = process.env.GEMINI_MODELS
         ? process.env.GEMINI_MODELS.split(",").map((m) => m.trim())
-        : ["gemini-2.0-flash", "gemini-1.5-flash"];
+        : Array.from(new Set([configuredGemini, "gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-3.5-flash"]));
       const GROQ_MODEL_CASCADE = process.env.GROQ_MODELS
         ? process.env.GROQ_MODELS.split(",").map((m) => m.trim())
         : ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.6-27b"];
@@ -290,6 +306,9 @@ function createOpenAICompatibleProvider(
           body.tools = toOpenAITools(tools);
         }
 
+        // Track call latency for health scoring
+        const callStartTime = Date.now();
+
         try {
           // Acquire rate limiter slot before making API call
           await limiter.acquire();
@@ -298,7 +317,6 @@ function createOpenAICompatibleProvider(
           const requestUrl = `${baseUrl}/chat/completions`;
           activeKey = keyManager.getActiveKey(providerName) || activeKey;
           headers.Authorization = `Bearer ${activeKey}`;
-
           let res: Response;
           try {
             res = await fetch(requestUrl, {
@@ -391,7 +409,9 @@ function createOpenAICompatibleProvider(
           }
 
           // Mark model and key as verified healthy on successful completion
+          const callLatencyMs = Date.now() - callStartTime;
           keyManager.reportSuccess(providerName, activeKey);
+          autonomousAdapter.recordCallOutcome(currentModel, callLatencyMs, true);
           if (isOpenRouter) {
             autonomousAdapter.reportModelSuccess(currentModel);
           }
@@ -428,10 +448,10 @@ function createOpenAICompatibleProvider(
               // in subsequent multi-turn tool-calling requests or they return HTTP 400.
               const tcAny = tc as any;
               const thoughtSig =
+                tcAny.extra_content?.google?.thought_signature ||
+                tcAny.extra_content?.thought_signature ||
                 tcAny.thought_signature ||
                 tcAny.function?.thought_signature ||
-                tcAny.extra_content?.thought_signature ||
-                tcAny.extra_content?.google?.thought_signature ||
                 tcAny.function?.extra_content?.thought_signature ||
                 undefined;
 
@@ -441,7 +461,12 @@ function createOpenAICompatibleProvider(
                 name: tc.function.name,
                 input,
                 // Store extracted thought_signature in extra_content for re-injection
-                extra_content: thoughtSig ? { thought_signature: thoughtSig } : undefined,
+                extra_content: thoughtSig
+                  ? {
+                      thought_signature: thoughtSig,
+                      google: { thought_signature: thoughtSig },
+                    }
+                  : undefined,
               });
             }
           }
@@ -461,6 +486,8 @@ function createOpenAICompatibleProvider(
             },
           };
         } catch (err: any) {
+          const callLatencyMs = Date.now() - callStartTime;
+          autonomousAdapter.recordCallOutcome(currentModel, callLatencyMs, false);
           lastError = err;
           if (i < modelQueue.length - 1) {
             // Truncate error message to prevent buffer bloat from noisy fetch/network errors
@@ -520,7 +547,7 @@ export function createLLMProvider(config: LLMConfig): LLMProvider {
 
   // 1. Primary: Google Gemini Provider (if any key exists)
   if (keyManager.hasKeys("gemini")) {
-    const geminiModel = "gemini-2.0-flash";
+    const geminiModel = process.env.LLM_MODEL || config.model || "gemini-3.5-flash-lite";
     const geminiConfig: LLMConfig = {
       ...config,
       provider: "gemini",

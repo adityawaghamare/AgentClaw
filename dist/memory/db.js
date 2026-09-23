@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 // src/memory/db.ts
+import dns from "dns";
 import sqlite3 from "sqlite3";
 import { createClient } from "@libsql/client";
 import fs2 from "fs";
@@ -117,6 +118,7 @@ function recordEarning(amountUsd, taskTitle) {
 }
 
 // src/memory/db.ts
+dns.setDefaultResultOrder("ipv4first");
 var tursoUrl = process.env.TURSO_DATABASE_URL || process.env.TURSO_URL;
 var tursoToken = process.env.TURSO_AUTH_TOKEN;
 var libsql = null;
@@ -511,7 +513,7 @@ function dbRecordDiscovery(task) {
   cache.tasks.set(record.id, record);
   capMapSize(cache.tasks, MAX_CACHE_TASKS);
   runQuery(
-    `INSERT INTO tasks (id, source, title, url, status, discoveredAt, executedAt, submittedAt, completedAt, earnedUsd, solutionSnippet, errorMsg, retries)
+    `INSERT OR IGNORE INTO tasks (id, source, title, url, status, discoveredAt, executedAt, submittedAt, completedAt, earnedUsd, solutionSnippet, errorMsg, retries)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       record.id,

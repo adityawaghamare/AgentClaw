@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { dbSaveKeyHealth, dbGetAllKeyHealth, type KeyHealthRecord } from "../memory/db.js";
+import { sendAlert, type AlertEvent } from "../notifications/alerts.js";
 
 const CONFIG_DIR = path.join(os.homedir(), ".agentclaw");
 const REGISTRY_FILE = path.join(CONFIG_DIR, "model_registry.json");
@@ -142,25 +143,8 @@ class MultiProviderKeyManager {
     } catch {}
   }
 
-  private async triggerAlertWebhook(event: string, details: Record<string, any>): Promise<void> {
-    const webhookUrl = process.env.ALERT_WEBHOOK_URL;
-    if (!webhookUrl) return;
-
-    try {
-      const payload = {
-        event,
-        timestamp: Date.now(),
-        agent: "AgentClaw",
-        ...details,
-      };
-      await fetch(webhookUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-    } catch (err) {
-      console.warn(`⚠️ [Alert Webhook] Failed to deliver alert to ${webhookUrl}: ${err}`);
-    }
+  private async triggerAlert(event: AlertEvent, message: string, details?: Record<string, unknown>): Promise<void> {
+    sendAlert({ event, message, details }).catch(() => {});
   }
 
   private parseKeys(raw: string): KeyState[] {
@@ -236,13 +220,10 @@ class MultiProviderKeyManager {
       state.rateLimitedUntil = Date.now() + cooloffMs;
       state.consecutiveErrors++;
       this.persistKey(provider, state);
-      this.triggerAlertWebhook("key_rate_limited", {
-        provider,
-        keyMasked: `...${key.slice(-4)}`,
-        cooloffSeconds: cooloffMs / 1000,
-        availableKeys: this.getAvailableCount(provider),
-        totalKeys: this.pools[provider].length,
-      });
+      this.triggerAlert("key_rate_limited",
+        `${provider} key ...${key.slice(-4)} rate-limited for ${cooloffMs / 1000}s. ${this.getAvailableCount(provider)}/${this.pools[provider].length} keys available.`,
+        { provider, keyMasked: `...${key.slice(-4)}`, cooloffSeconds: cooloffMs / 1000, availableKeys: this.getAvailableCount(provider) },
+      );
       console.warn(
         `⏳ [Key Rotation] ${provider} key ...${key.slice(-4)} rate-limited. Cooloff ${cooloffMs / 1000}s. ` +
         `(${this.getAvailableCount(provider)}/${this.pools[provider].length} keys available)`
@@ -260,12 +241,10 @@ class MultiProviderKeyManager {
       state.exhaustedAt = Date.now();
       state.consecutiveErrors++;
       this.persistKey(provider, state);
-      this.triggerAlertWebhook("key_quota_exhausted", {
-        provider,
-        keyMasked: `...${key.slice(-4)}`,
-        remainingKeys: this.getAvailableCount(provider),
-        totalKeys: this.pools[provider].length,
-      });
+      this.triggerAlert("key_quota_exhausted",
+        `${provider} key ...${key.slice(-4)} daily quota exhausted. ${this.getAvailableCount(provider)}/${this.pools[provider].length} keys remaining.`,
+        { provider, keyMasked: `...${key.slice(-4)}`, remainingKeys: this.getAvailableCount(provider) },
+      );
       console.warn(
         `🔴 [Key Rotation] ${provider} key ...${key.slice(-4)} daily quota exhausted. ` +
         `(${this.getAvailableCount(provider)}/${this.pools[provider].length} keys remaining)`
@@ -279,10 +258,10 @@ class MultiProviderKeyManager {
         `🔑 [Key Rotation] Auto-rotated ${provider} to key ...${nextKey.slice(-4)}`
       );
     } else {
-      this.triggerAlertWebhook("provider_all_keys_exhausted", {
-        provider,
-        message: `🔴 ALL ${provider} keys exhausted for today.`,
-      });
+      this.triggerAlert("provider_all_keys_exhausted",
+        `ALL ${provider} keys exhausted for today. Agent will pause tasks on this provider until quota resets at midnight UTC.`,
+        { provider },
+      );
       console.warn(
         `⚠️ [Key Rotation] ALL ${provider} keys exhausted for today. Will reset at midnight UTC.`
       );
@@ -298,10 +277,10 @@ class MultiProviderKeyManager {
     if (state) {
       state.exhaustedAt = Date.now();
       this.persistKey(provider, state);
-      this.triggerAlertWebhook("key_invalid", {
-        provider,
-        keyMasked: `...${key.slice(-4)}`,
-      });
+      this.triggerAlert("key_invalid",
+        `${provider} key ...${key.slice(-4)} is invalid or expired (401). Removed from rotation.`,
+        { provider, keyMasked: `...${key.slice(-4)}` },
+      );
       console.warn(
         `🚫 [Key Rotation] ${provider} key ...${key.slice(-4)} invalid/expired (401). Removed from rotation.`
       );
@@ -406,6 +385,17 @@ class MultiProviderKeyManager {
   }
 }
 
+// ==================== MODEL HEALTH METRICS ====================
+
+interface ModelMetrics {
+  totalCalls: number;
+  successCount: number;
+  totalLatencyMs: number;
+  recentLatencies: number[];   // Last 20 latency values for rolling average
+  recentErrors: number[];      // Timestamps of recent errors (last 10)
+  lastCallTime: number;
+}
+
 // ==================== OPENROUTER MODEL ADAPTER ====================
 
 class AutonomousModelAdapter {
@@ -415,15 +405,18 @@ class AutonomousModelAdapter {
     "google/lyria-3-clip-preview",
     "nvidia/nemotron-3.5-content-safety:free",
     "openrouter/free",
-    // Pre-blacklisted deprecated Gemini models (August 2026)
-    // gemini-2.5-flash returns 404, gemini-3.5-flash-lite fails tool call validation
+    // Deprecated Gemini models (Google returns HTTP 404)
     "gemini-2.5-flash",
-    "gemini-3.5-flash-lite",
+    "gemini-2.0-flash",
+    "gemini-1.5-flash",
   ]);
   private discoveredFreeModels: string[] = [...DEFAULT_FREE_MODELS];
   private activePrimaryModel = "nvidia/nemotron-3-ultra-550b-a55b:free";
   private lastFetchTime = 0;
   private rateLimitedUntil = new Map<string, number>();
+
+  // Model Health Scoring: per-model performance metrics
+  private metrics = new Map<string, ModelMetrics>();
 
   constructor() {
     this.loadState();
@@ -482,6 +475,137 @@ class AutonomousModelAdapter {
       // ignore write errors
     }
   }
+
+  // ==================== HEALTH SCORING ENGINE ====================
+
+  private getOrCreateMetrics(model: string): ModelMetrics {
+    let m = this.metrics.get(model);
+    if (!m) {
+      m = {
+        totalCalls: 0,
+        successCount: 0,
+        totalLatencyMs: 0,
+        recentLatencies: [],
+        recentErrors: [],
+        lastCallTime: 0,
+      };
+      this.metrics.set(model, m);
+    }
+    return m;
+  }
+
+  /**
+   * Record the outcome of an API call for health scoring.
+   * Called by LLM provider after every request (success or failure).
+   */
+  public recordCallOutcome(model: string, latencyMs: number, success: boolean): void {
+    const m = this.getOrCreateMetrics(model);
+    m.totalCalls++;
+    m.totalLatencyMs += latencyMs;
+    m.lastCallTime = Date.now();
+
+    // Keep rolling window of last 20 latencies
+    m.recentLatencies.push(latencyMs);
+    if (m.recentLatencies.length > 20) {
+      m.recentLatencies.shift();
+    }
+
+    if (success) {
+      m.successCount++;
+    } else {
+      // Keep last 10 error timestamps
+      m.recentErrors.push(Date.now());
+      if (m.recentErrors.length > 10) {
+        m.recentErrors.shift();
+      }
+    }
+  }
+
+  /**
+   * Calculate a health score for a model (0-100).
+   * Higher = better. Factors: success rate, latency, recency of errors.
+   */
+  public getHealthScore(model: string): number {
+    const m = this.metrics.get(model);
+    if (!m || m.totalCalls === 0) {
+      return 50; // Unknown model gets neutral score
+    }
+
+    // Success rate component (0-40 points)
+    const successRate = m.successCount / m.totalCalls;
+    const successScore = successRate * 40;
+
+    // Latency component (0-30 points) — lower avg latency = higher score
+    const avgLatency =
+      m.recentLatencies.length > 0
+        ? m.recentLatencies.reduce((a, b) => a + b, 0) / m.recentLatencies.length
+        : m.totalLatencyMs / m.totalCalls;
+    // 2s = full points, 10s = half points, >20s = near-zero
+    const latencyScore = Math.max(0, 30 * (1 - Math.min(avgLatency / 20000, 1)));
+
+    // Recent error penalty (0-30 points) — more recent errors = lower score
+    const now = Date.now();
+    const recentErrorCount = m.recentErrors.filter((t) => now - t < 5 * 60 * 1000).length; // errors in last 5 min
+    const errorPenalty = Math.min(recentErrorCount * 6, 30); // -6 per recent error, max -30
+    const stabilityScore = 30 - errorPenalty;
+
+    return Math.round(Math.max(0, Math.min(100, successScore + latencyScore + stabilityScore)));
+  }
+
+  /**
+   * Get health status summary for all tracked models.
+   */
+  public getModelHealthSummary(): Array<{
+    model: string;
+    score: number;
+    successRate: number;
+    avgLatencyMs: number;
+    totalCalls: number;
+  }> {
+    const summary: Array<{ model: string; score: number; successRate: number; avgLatencyMs: number; totalCalls: number }> = [];
+    for (const [model, m] of this.metrics) {
+      const avgLatency =
+        m.recentLatencies.length > 0
+          ? Math.round(m.recentLatencies.reduce((a, b) => a + b, 0) / m.recentLatencies.length)
+          : m.totalCalls > 0
+          ? Math.round(m.totalLatencyMs / m.totalCalls)
+          : 0;
+      summary.push({
+        model,
+        score: this.getHealthScore(model),
+        successRate: m.totalCalls > 0 ? Math.round((m.successCount / m.totalCalls) * 100) : 0,
+        avgLatencyMs: avgLatency,
+        totalCalls: m.totalCalls,
+      });
+    }
+    // Sort by score descending
+    return summary.sort((a, b) => b.score - a.score);
+  }
+
+  /**
+   * Prune stale metrics entries to prevent memory growth.
+   * Removes models not called in over 24 hours and clears expired rate limits.
+   */
+  public pruneStaleData(): void {
+    const now = Date.now();
+    const STALE_THRESHOLD = 24 * 60 * 60 * 1000; // 24 hours
+
+    // Prune old model metrics
+    for (const [model, m] of this.metrics) {
+      if (m.lastCallTime > 0 && now - m.lastCallTime > STALE_THRESHOLD) {
+        this.metrics.delete(model);
+      }
+    }
+
+    // Prune expired rate limits
+    for (const [model, until] of this.rateLimitedUntil) {
+      if (until <= now) {
+        this.rateLimitedUntil.delete(model);
+      }
+    }
+  }
+
+  // ==================== EXISTING METHODS (ENHANCED) ====================
 
   /**
    * Queries OpenRouter public models API to dynamically discover available free models.
@@ -546,6 +670,7 @@ class AutonomousModelAdapter {
 
   /**
    * Builds prioritized candidate model queue for OpenRouter requests.
+   * Models are sorted by health score (best-performing models first).
    */
   public getModelQueue(configuredModel?: string): string[] {
     const healthy = this.getHealthyFreeModels();
@@ -558,7 +683,14 @@ class AutonomousModelAdapter {
       candidate = healthy[0] || DEFAULT_FREE_MODELS[0];
     }
 
-    const queue = [candidate, ...healthy];
+    // Sort healthy models by health score (best first)
+    const scored = healthy
+      .map((m) => ({ model: m, score: this.getHealthScore(m) }))
+      .sort((a, b) => b.score - a.score)
+      .map((s) => s.model);
+
+    // Candidate always goes first, then sorted by score
+    const queue = [candidate, ...scored];
     return Array.from(new Set(queue));
   }
 
@@ -574,6 +706,9 @@ class AutonomousModelAdapter {
     if (httpStatus === 404 || httpStatus === 410) {
       this.blacklisted.add(model);
     }
+
+    // Record failure in health metrics
+    this.recordCallOutcome(model, 0, false);
 
     // Pick best healthy model as new primary
     const healthy = this.getHealthyFreeModels();
@@ -596,8 +731,13 @@ class AutonomousModelAdapter {
   public reportModelSuccess(model: string): void {
     this.rateLimitedUntil.delete(model);
     if (model && !this.blacklisted.has(model) && this.activePrimaryModel !== model) {
-      this.activePrimaryModel = model;
-      this.saveState();
+      // Only promote if this model has a better health score
+      const currentScore = this.getHealthScore(this.activePrimaryModel);
+      const newScore = this.getHealthScore(model);
+      if (newScore >= currentScore) {
+        this.activePrimaryModel = model;
+        this.saveState();
+      }
     }
   }
 

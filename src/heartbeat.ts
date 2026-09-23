@@ -7,6 +7,8 @@ import type { Task } from "./moltlaunch/types.js";
 import * as cli from "./moltlaunch/cli.js";
 import { runAgentLoop, type LoopResult } from "./loop/index.js";
 import { autonomousAdapter, keyManager } from "./llm/adaptation.js";
+import { sendAlert } from "./notifications/alerts.js";
+import { pruneAlertCooldowns } from "./notifications/alerts.js";
 import { runStudySession } from "./loop/study.js";
 import { storeFeedback } from "./memory/feedback.js";
 import { appendLog } from "./memory/log.js";
@@ -267,6 +269,13 @@ export function createHeartbeat(
           message: `🟡 SUBMITTED! Bounty +$${earnedUsd} pending escrow release...`,
         });
 
+        // Send push notification for bounty submission
+        sendAlert({
+          event: "bounty_submitted",
+          message: `Submitted bounty solution for task ${task.id.slice(0, 8)}... — $${earnedUsd} pending escrow.`,
+          details: { taskId: task.id, earnedUsd, title: task.task.slice(0, 100) },
+        }).catch(() => {});
+
         autoSettlePendingEarnings()
           .then((res) => {
             if (res.settled.length > 0) {
@@ -291,6 +300,7 @@ export function createHeartbeat(
       emit({ type: "error", taskId: task.id, message: `❌ Error: ${msg.slice(0, 200)}` });
       appendLog(`Error for ${task.id}: ${msg}`);
 
+      // Send push notification for task failures (not rate limits)
       const isCircuitBreaker = msg.includes("Circuit Breaker");
       const is429 = isCircuitBreaker || msg.includes("429") || msg.includes("RESOURCE_EXHAUSTED") || msg.includes("quota") || msg.includes("rate");
       if (is429) {
@@ -446,8 +456,10 @@ export function createHeartbeat(
       ...(token ? { Authorization: token.startsWith("github_pat_") || token.startsWith("ghp_") ? `Bearer ${token}` : `token ${token}` } : {}),
     };
 
+    let checkedCount = 0;
     for (const [id, task] of state.activeTasks.entries()) {
       if (task.status !== "submitted") continue;
+      if (++checkedCount > 5) break;
 
       const ghMatch = task.task.match(/github\.com\/([^/]+)\/([^/]+)\/(issues|pull)\/(\d+)/i);
       if (!ghMatch) continue;
@@ -545,6 +557,34 @@ export function createHeartbeat(
         taskRetryCounts.delete(id);
       }
     }
+
+    // Memory guardrail: cap completedTasks Set to prevent unbounded growth
+    if (completedTasks.size > 500) {
+      const toRemove = [...completedTasks].slice(0, 200);
+      for (const id of toRemove) {
+        completedTasks.delete(id);
+      }
+    }
+
+    // Memory guardrail: prune stale processedVersions (not actively processing)
+    if (processedVersions.size > 200) {
+      for (const [id] of processedVersions) {
+        if (!processing.has(id) && !state.activeTasks.has(id)) {
+          processedVersions.delete(id);
+        }
+      }
+    }
+
+    // Memory guardrail: clean expired taskRetryAfter entries
+    for (const [id, until] of taskRetryAfter) {
+      if (now > until && !processing.has(id)) {
+        taskRetryAfter.delete(id);
+      }
+    }
+
+    // Prune stale data in model adapter and alert cooldowns
+    autonomousAdapter.pruneStaleData();
+    pruneAlertCooldowns();
 
     if (global.gc) {
       try { global.gc(); } catch {}

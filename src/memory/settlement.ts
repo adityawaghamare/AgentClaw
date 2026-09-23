@@ -38,36 +38,42 @@ export function getConfiguredRpcUrls(): string[] {
   return Array.from(new Set(allUrls));
 }
 
+let sharedFailoverTransport: any = null;
+let sharedPublicClient: PublicClient | null = null;
+
 /**
- * Returns a viem fallback transport with RPC latency ranking & multi-tier retry strategy.
+ * Returns a singleton viem fallback transport with multi-tier retry strategy.
  */
 export function getBaseFailoverTransport() {
-  const urls = getConfiguredRpcUrls();
-  const httpTransports = urls.map((url) =>
-    http(url, {
-      timeout: 8_000,
-      retryCount: 2,
-      retryDelay: 500,
-    })
-  );
+  if (!sharedFailoverTransport) {
+    const urls = getConfiguredRpcUrls();
+    const httpTransports = urls.map((url) =>
+      http(url, {
+        timeout: 8_000,
+        retryCount: 2,
+        retryDelay: 500,
+      })
+    );
 
-  return fallback(httpTransports, {
-    rank: {
-      interval: 30_000, // Re-test and rank RPC node latency every 30 seconds
-    },
-    retryCount: 3,
-    retryDelay: 1_000,
-  });
+    sharedFailoverTransport = fallback(httpTransports, {
+      retryCount: 2,
+      retryDelay: 1_000,
+    });
+  }
+  return sharedFailoverTransport;
 }
 
 /**
- * Creates a viem PublicClient backed by the Multi-RPC Failover Mesh.
+ * Returns a singleton viem PublicClient backed by the Multi-RPC Failover Mesh.
  */
 export function createBasePublicClient(): PublicClient {
-  return createPublicClient({
-    chain: base,
-    transport: getBaseFailoverTransport(),
-  }) as PublicClient;
+  if (!sharedPublicClient) {
+    sharedPublicClient = createPublicClient({
+      chain: base,
+      transport: getBaseFailoverTransport(),
+    }) as PublicClient;
+  }
+  return sharedPublicClient;
 }
 
 export interface RpcNodeHealth {
@@ -166,14 +172,37 @@ export async function executeEscrowSettlement(earning: EarningRecord): Promise<s
 }
 
 /**
- * Scans all pending_escrow earnings and automatically confirms & transfers them to TREASURY_ADDRESS.
+ * Scans pending_escrow earnings and confirms transfers to TREASURY_ADDRESS.
+ * Memory & Network guarded: Pre-checks wallet gas once to prevent repeated socket allocations.
  */
 export async function autoSettlePendingEarnings(): Promise<SettlementResult> {
   const pendingEarnings = dbGetEarnings().filter((e) => e.payoutStatus === "pending_escrow");
+  if (pendingEarnings.length === 0) {
+    return { settled: [], totalSettledUsd: 0 };
+  }
+
+  // Pre-check wallet gas ONCE before attempting settlements
+  try {
+    const pk = (await vaultManager.withDecryptedPrivateKey(async (key) => key) || await getRawPrivateKey()) as `0x${string}`;
+    const account = privateKeyToAccount(pk);
+    const publicClient = createBasePublicClient();
+    const balanceWei = await publicClient.getBalance({ address: account.address });
+    const balanceEth = parseFloat(formatEther(balanceWei));
+
+    if (balanceEth <= 0.0001) {
+      // Wallet has no gas balance for transactions — skip settlement safely
+      return { settled: [], totalSettledUsd: 0 };
+    }
+  } catch {
+    // If RPC is unreachable or wallet uninitialized, skip this cycle
+    return { settled: [], totalSettledUsd: 0 };
+  }
+
   const settledRecords: EarningRecord[] = [];
   let totalUsd = 0;
 
-  for (const earning of pendingEarnings) {
+  // Process up to 3 per cycle to keep execution fast and memory clean
+  for (const earning of pendingEarnings.slice(0, 3)) {
     try {
       const txHash = await executeEscrowSettlement(earning);
       const confirmResult = dbConfirmWalletTransfer(earning.id, txHash);

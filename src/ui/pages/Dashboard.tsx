@@ -143,7 +143,11 @@ export function Dashboard() {
     }
 
     void poll();
-    const interval = setInterval(() => void poll(), 3000);
+    const interval = setInterval(() => {
+      if (document.visibilityState === "visible") {
+        void poll();
+      }
+    }, 7000);
 
     // Fetch ETH price once (has its own server-side cache)
     api.getEthPrice()

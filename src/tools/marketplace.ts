@@ -220,3 +220,154 @@ ${(issue.body || "No description provided.").slice(0, 3000)}${commentsText}`;
     }
   },
 };
+
+/**
+ * 📄 GitHub File Fetcher — reads existing source file content from target repository
+ */
+export const fetchGitHubFile: Tool = {
+  definition: {
+    name: "fetch_github_file",
+    description: "Fetch the content of a specific file from a GitHub repository to inspect existing code before modifying. Provide the repository as 'owner/repo' or full GitHub URL, and the relative file path (e.g. 'src/index.ts').",
+    input_schema: {
+      type: "object",
+      properties: {
+        repo: { type: "string", description: "Repository in 'owner/repo' format or full GitHub URL" },
+        path: { type: "string", description: "Relative file path within the repository (e.g. 'src/utils/helpers.ts')" },
+        ref: { type: "string", description: "Optional branch, tag, or commit SHA (defaults to default branch)" },
+      },
+      required: ["repo", "path"],
+    },
+  },
+  async execute(input) {
+    const rawRepo = requireString(input, "repo");
+    const filePath = requireString(input, "path").replace(/^[\/\\]+/, "");
+    const ref = typeof input.ref === "string" ? input.ref : undefined;
+
+    const match = rawRepo.match(/(?:github\.com\/)?([^/\s]+)\/([^/\s#]+)/i);
+    if (!match) {
+      return { success: false, data: `Invalid repository specification: ${rawRepo}` };
+    }
+    const [, owner, repo] = match;
+    const cleanRepo = repo.replace(/\.git$/, "").replace(/\/(issues|pull).*$/, "");
+
+    const url = `https://api.github.com/repos/${owner}/${cleanRepo}/contents/${filePath}${ref ? `?ref=${ref}` : ""}`;
+    const headers: Record<string, string> = {
+      "User-Agent": "AgentClaw-Engine",
+      "Accept": "application/vnd.github.v3+json",
+    };
+    if (process.env.GITHUB_TOKEN) {
+      headers["Authorization"] = `token ${process.env.GITHUB_TOKEN}`;
+    }
+
+    try {
+      const res = await fetch(url, { headers });
+      if (!res.ok) {
+        return { success: false, data: `GitHub API ${res.status}: ${await res.text()}` };
+      }
+      const data = (await res.json()) as any;
+      if (data.type !== "file") {
+        return { success: false, data: `Path '${filePath}' is a ${data.type}, not a regular file.` };
+      }
+      const content = Buffer.from(data.content, "base64").toString("utf-8");
+      const safeContent = content.length > 15_000
+        ? content.slice(0, 15_000) + "\n...[truncated remainder of large file]"
+        : content;
+
+      return {
+        success: true,
+        data: `// File: ${filePath} (Size: ${data.size} bytes, SHA: ${data.sha})\n\n${safeContent}`,
+      };
+    } catch (err: any) {
+      return { success: false, data: `Error fetching file: ${err.message}` };
+    }
+  },
+};
+
+/**
+ * 🌲 GitHub Repo Tree Explorer — lists files in target repository so agent can find real code paths
+ */
+export const listGitHubRepoFiles: Tool = {
+  definition: {
+    name: "list_github_repo_files",
+    description: "List the file tree of a GitHub repository to discover existing code files, directory structure, and locate the right file to edit. Provide repository as 'owner/repo' or full GitHub URL.",
+    input_schema: {
+      type: "object",
+      properties: {
+        repo: { type: "string", description: "Repository in 'owner/repo' format or full GitHub URL" },
+        subpath: { type: "string", description: "Optional directory prefix to filter (e.g. 'src/' or 'contracts/')" },
+      },
+      required: ["repo"],
+    },
+  },
+  async execute(input) {
+    const rawRepo = requireString(input, "repo");
+    const subpath = typeof input.subpath === "string" ? input.subpath.replace(/^[\/\\]+/, "") : "";
+
+    const match = rawRepo.match(/(?:github\.com\/)?([^/\s]+)\/([^/\s#]+)/i);
+    if (!match) {
+      return { success: false, data: `Invalid repository specification: ${rawRepo}` };
+    }
+    const [, owner, repo] = match;
+    const cleanRepo = repo.replace(/\.git$/, "").replace(/\/(issues|pull).*$/, "");
+
+    const headers: Record<string, string> = {
+      "User-Agent": "AgentClaw-Engine",
+      "Accept": "application/vnd.github.v3+json",
+    };
+    if (process.env.GITHUB_TOKEN) {
+      headers["Authorization"] = `token ${process.env.GITHUB_TOKEN}`;
+    }
+
+    try {
+      const repoRes = await fetch(`https://api.github.com/repos/${owner}/${cleanRepo}`, { headers });
+      if (!repoRes.ok) {
+        return { success: false, data: `Failed to fetch repo info: ${repoRes.status}` };
+      }
+      const repoData = (await repoRes.json()) as any;
+      const defaultBranch = repoData.default_branch || "main";
+
+      const treeRes = await fetch(
+        `https://api.github.com/repos/${owner}/${cleanRepo}/git/trees/${defaultBranch}?recursive=1`,
+        { headers }
+      );
+      if (!treeRes.ok) {
+        return { success: false, data: `Failed to fetch repo tree: ${treeRes.status}` };
+      }
+
+      const treeData = (await treeRes.json()) as any;
+      const allFiles = (treeData.tree || [])
+        .filter((node: any) => node.type === "blob")
+        .map((node: any) => node.path as string);
+
+      let filteredFiles = subpath
+        ? allFiles.filter((p: string) => p.startsWith(subpath))
+        : allFiles;
+
+      const sourceFiles = filteredFiles.filter((p: string) => {
+        return !p.includes("node_modules/") &&
+          !p.endsWith(".lock") &&
+          !p.endsWith("-lock.json") &&
+          !p.endsWith(".min.js") &&
+          !p.endsWith(".png") &&
+          !p.endsWith(".jpg") &&
+          !p.endsWith(".woff") &&
+          !p.endsWith(".ico");
+      });
+
+      const displayList = sourceFiles.slice(0, 100);
+      const output = [
+        `Repository: ${owner}/${cleanRepo} (${defaultBranch})`,
+        `Showing ${displayList.length} of ${sourceFiles.length} source file(s):`,
+        ...displayList.map((p: string) => `  - ${p}`),
+      ];
+
+      if (sourceFiles.length > 100) {
+        output.push(`\n...and ${sourceFiles.length - 100} more files (use subpath to filter).`);
+      }
+
+      return { success: true, data: output.join("\n") };
+    } catch (err: any) {
+      return { success: false, data: `Error listing repo files: ${err.message}` };
+    }
+  },
+};

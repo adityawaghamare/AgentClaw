@@ -11,6 +11,8 @@ import {
   listBounties,
   claimBounty,
   fetchGitHubIssue,
+  fetchGitHubFile,
+  listGitHubRepoFiles,
 } from "./marketplace.js";
 import {
   checkWalletBalance,
@@ -19,6 +21,7 @@ import {
   logActivity,
 } from "./utility.js";
 import { agentcashFetch, agentcashBalance } from "./agentcash.js";
+import { runInSandbox } from "./sandbox.js";
 
 const BASE_TOOLS: Tool[] = [
   readTask,
@@ -29,6 +32,9 @@ const BASE_TOOLS: Tool[] = [
   listBounties,
   claimBounty,
   fetchGitHubIssue,
+  fetchGitHubFile,
+  listGitHubRepoFiles,
+  runInSandbox,
   checkWalletBalance,
   readFeedbackHistory,
   memorySearch,

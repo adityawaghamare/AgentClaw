@@ -2,7 +2,6 @@
 import { exec, spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import os from "node:os";
 
 export interface SandboxOptions {
   timeoutMs?: number;
@@ -28,7 +27,7 @@ if (!fs.existsSync(SANDBOX_TMP_DIR)) {
 
 let isDockerAvailableCache: boolean | null = null;
 
-async function checkDockerAvailable(): Promise<boolean> {
+export async function checkDockerAvailable(): Promise<boolean> {
   if (isDockerAvailableCache !== null) return isDockerAvailableCache;
   return new Promise((resolve) => {
     exec("docker info", { timeout: 3000 }, (error) => {
@@ -40,8 +39,9 @@ async function checkDockerAvailable(): Promise<boolean> {
 
 /**
  * Sanitizes environment variables to prevent leakage of secrets to untrusted sandboxed tasks.
+ * Strips all tokens, private keys, passwords, database credentials, and webhook URLs.
  */
-function getSanitizedEnv(customEnv?: Record<string, string>): Record<string, string> {
+export function getSanitizedEnv(customEnv?: Record<string, string>): Record<string, string> {
   const safeEnv: Record<string, string> = {
     PATH: process.env.PATH || "",
     NODE_ENV: "production",
@@ -49,19 +49,27 @@ function getSanitizedEnv(customEnv?: Record<string, string>): Record<string, str
     TMP: SANDBOX_TMP_DIR,
   };
 
-  // Explicitly filter out sensitive credentials
-  const SENSITIVE_KEYS = [
-    "ETH_PRIVATE_KEY",
-    "ADMIN_PASSWORD",
-    "ADMIN_SECRET",
-    "VAULT_PASSPHRASE",
-    "GEMINI_API_KEYS",
-    "GROQ_API_KEYS",
-    "OPENROUTER_API_KEYS",
+  // Only pass non-sensitive system environment variables
+  const SENSITIVE_PATTERNS = [
+    /TOKEN/i,
+    /KEY/i,
+    /SECRET/i,
+    /PASSWORD/i,
+    /PASSPHRASE/i,
+    /AUTH/i,
+    /DATABASE/i,
+    /PRIVATE/i,
+    /WEBHOOK/i,
+    /ADMIN/i,
+    /CREDENTIAL/i,
+    /BEARER/i,
+    /URL/i,
   ];
 
   for (const [k, v] of Object.entries(process.env)) {
-    if (v && !SENSITIVE_KEYS.includes(k) && !k.startsWith("SECRET_")) {
+    if (!v) continue;
+    const isSensitive = SENSITIVE_PATTERNS.some((p) => p.test(k));
+    if (!isSensitive) {
       safeEnv[k] = v;
     }
   }
@@ -81,8 +89,8 @@ export async function executeInSandbox(
   options: SandboxOptions = {}
 ): Promise<SandboxResult> {
   const startTime = Date.now();
-  const timeoutMs = options.timeoutMs || 30000; // 30s default
-  const maxMemoryMb = options.maxMemoryMb || 512;
+  const timeoutMs = options.timeoutMs || 15_000; // 15s default
+  const maxMemoryMb = options.maxMemoryMb || 256; // 256MB cap
   const allowNetwork = options.allowNetwork || false;
 
   const hasDocker = await checkDockerAvailable();
@@ -104,7 +112,8 @@ async function runInDockerSandbox(
 ): Promise<SandboxResult> {
   return new Promise((resolve) => {
     const netFlag = allowNetwork ? "" : "--network none";
-    const dockerCmd = `docker run --rm ${netFlag} --memory ${maxMemoryMb}m --cpus 1.0 node:20-alpine sh -c ${JSON.stringify(command)}`;
+    const workDir = options.workDir || SANDBOX_TMP_DIR;
+    const dockerCmd = `docker run --rm ${netFlag} --memory ${maxMemoryMb}m --cpus 1.0 -v "${workDir}:/workspace" -w /workspace node:20-alpine sh -c ${JSON.stringify(command)}`;
 
     exec(dockerCmd, { timeout: timeoutMs, env: getSanitizedEnv(options.env) }, (err, stdout, stderr) => {
       resolve({
@@ -126,28 +135,35 @@ async function runInRestrictedSubprocessSandbox(
   maxMemoryMb: number
 ): Promise<SandboxResult> {
   return new Promise((resolve) => {
-    // Write temporary script file inside restricted sandbox temp dir
-    const scriptId = `task_${Date.now()}_${Math.random().toString(36).substring(2, 7)}.js`;
-    const scriptPath = path.join(SANDBOX_TMP_DIR, scriptId);
+    const workDir = options.workDir || SANDBOX_TMP_DIR;
+    const scriptId = `sandbox_${Date.now()}_${Math.random().toString(36).substring(2, 7)}.js`;
+    const scriptPath = path.join(workDir, scriptId);
 
+    // Isolate execution inside an evaluation wrapper
     const safeWrapperCode = `
-      // Restricted Sandbox Wrapper ESM
-      import fs from "node:fs";
-      import path from "node:path";
-      
-      // Execute command or code body
+      // Quarantined Sandbox Isolation Wrapper
       try {
-        ${command.includes("console.log") || command.includes(";") ? command : `console.log(eval(${JSON.stringify(command)}));`}
+        ${command.includes("console.log") || command.includes(";") || command.includes("\n") ? command : `console.log(eval(${JSON.stringify(command)}));`}
       } catch (err) {
-        console.error("Sandbox Execution Error:", err.message);
+        console.error("Sandbox Execution Error:", err && err.message ? err.message : String(err));
         process.exit(1);
       }
     `;
 
-    fs.writeFileSync(scriptPath, safeWrapperCode, "utf8");
+    try {
+      fs.writeFileSync(scriptPath, safeWrapperCode, "utf8");
+    } catch (err: any) {
+      return resolve({
+        sandboxType: "restricted_vm",
+        stdout: "",
+        stderr: `Failed to write sandbox script: ${err.message}`,
+        exitCode: 1,
+        executionTimeMs: Date.now() - startTime,
+      });
+    }
 
     const child = spawn(process.execPath, [`--max-old-space-size=${maxMemoryMb}`, scriptPath], {
-      cwd: options.workDir || SANDBOX_TMP_DIR,
+      cwd: workDir,
       env: getSanitizedEnv(options.env),
       timeout: timeoutMs,
       stdio: ["pipe", "pipe", "pipe"],
@@ -159,15 +175,15 @@ async function runInRestrictedSubprocessSandbox(
     child.stdout.on("data", (d) => { stdout += d.toString(); });
     child.stderr.on("data", (d) => { stderr += d.toString(); });
 
-    child.on("close", (code) => {
-      // Clean up script file
+    child.on("close", (code, signal) => {
       try { fs.unlinkSync(scriptPath); } catch {}
 
+      const isTimedOut = signal === "SIGTERM" || signal === "SIGKILL" || code === null;
       resolve({
         sandboxType: "restricted_vm",
         stdout: stdout.trim(),
-        stderr: stderr.trim(),
-        exitCode: code ?? 0,
+        stderr: isTimedOut ? (stderr ? `${stderr}\nExecution timed out` : "Execution timed out") : stderr.trim(),
+        exitCode: isTimedOut ? 1 : (code ?? 0),
         executionTimeMs: Date.now() - startTime,
       });
     });

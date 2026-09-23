@@ -1,4 +1,6 @@
 /** Built by Aditya Waghamare */
+import dns from "node:dns";
+dns.setDefaultResultOrder("ipv4first");
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -53,7 +55,7 @@ const DEFAULT_CONFIG: Omit<CashClawConfig, "agentId" | "llm"> = {
   specialties: [],
   autoQuote: true,
   autoWork: true,
-  maxConcurrentTasks: 5,
+  maxConcurrentTasks: 2, // PC Optimized default: 2 concurrent tasks
   declineKeywords: [],
   learningEnabled: true,
   studyIntervalMs: 14_400_000, // 4 hours — save API quota for execution
@@ -168,9 +170,21 @@ export function loadConfig(): CashClawConfig | null {
   
   let apiKey = getApiKeyFromEnv(provider) || parsed?.llm?.apiKey || "";
 
+  const envMaxConcurrent = process.env.MAX_CONCURRENT_TASKS
+    ? parseInt(process.env.MAX_CONCURRENT_TASKS, 10)
+    : undefined;
+  const envPollInterval = process.env.POLLING_INTERVAL_MS
+    ? parseInt(process.env.POLLING_INTERVAL_MS, 10)
+    : undefined;
+
   const config: CashClawConfig = {
     ...DEFAULT_CONFIG,
     ...parsed,
+    maxConcurrentTasks: envMaxConcurrent ?? parsed?.maxConcurrentTasks ?? 2,
+    polling: {
+      intervalMs: envPollInterval ?? parsed?.polling?.intervalMs ?? DEFAULT_CONFIG.polling.intervalMs,
+      urgentIntervalMs: DEFAULT_CONFIG.polling.urgentIntervalMs,
+    },
     agentId: parsed?.agentId || "agentclaw_agent",
     llm: {
       provider,

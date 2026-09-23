@@ -1,10 +1,27 @@
 /** Built by Aditya Waghamare */
+import dns from "node:dns";
+dns.setDefaultResultOrder("ipv4first");
+
+// Performance & Socket Guard for Local PC:
+// Prevent Undici from holding unlimited keep-alive sockets and exhausting Windows TCP buffer pool (WSAENOBUFS)
+try {
+  const { setGlobalDispatcher, Agent } = await import("undici");
+  setGlobalDispatcher(
+    new Agent({
+      connections: 20,
+      pipelining: 1,
+      keepAliveTimeout: 10_000,
+      keepAliveMaxTimeout: 15_000,
+    })
+  );
+} catch {}
+
 import { startAgent } from "./agent.js";
 import { vaultManager } from "./security/vault.js";
 import { clusterManager } from "./cluster/manager.js";
 
 async function main() {
-  console.log("⚡ Starting AgentClaw Enterprise Cluster...");
+  console.log("⚡ Starting AgentClaw Enterprise Cluster (PC Optimized Mode)...");
 
   // Initialize AES-256-GCM Vault Manager
   vaultManager.initializeVault();

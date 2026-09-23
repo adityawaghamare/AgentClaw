@@ -1,4 +1,6 @@
 /** Built by Aditya Waghamare */
+import dns from "node:dns";
+dns.setDefaultResultOrder("ipv4first");
 import sqlite3 from "sqlite3";
 import { createClient, type Client as LibsqlClient } from "@libsql/client";
 import fs from "node:fs";
@@ -514,7 +516,7 @@ export function dbRecordDiscovery(task: Omit<TaskRecord, "status" | "discoveredA
   capMapSize(cache.tasks, MAX_CACHE_TASKS);
 
   runQuery(
-    `INSERT INTO tasks (id, source, title, url, status, discoveredAt, executedAt, submittedAt, completedAt, earnedUsd, solutionSnippet, errorMsg, retries)
+    `INSERT OR IGNORE INTO tasks (id, source, title, url, status, discoveredAt, executedAt, submittedAt, completedAt, earnedUsd, solutionSnippet, errorMsg, retries)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       record.id,

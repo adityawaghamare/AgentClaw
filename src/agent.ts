@@ -156,16 +156,15 @@ function startKeepAlive() {
       .catch((err) => console.warn(`[Keep-Alive] Ping note:`, err.message));
   }, pingIntervalMs);
 
-  // Senior-Grade Memory Guard: Trigger proactive Garbage Collection before Railway 512MB RAM cap is reached
+  // Senior-Grade Memory Guard: Trigger proactive Garbage Collection before PC memory gets constrained
   setInterval(() => {
     const mem = process.memoryUsage();
     const heapMb = Math.round(mem.heapUsed / 1024 / 1024);
     const rssMb = Math.round(mem.rss / 1024 / 1024);
-    if ((heapMb > 160 || rssMb > 280) && typeof global.gc === "function") {
-      console.log(`[Memory Guard] 🧹 High RAM usage (${heapMb}MB heap / ${rssMb}MB RSS). Invoking Garbage Collection...`);
+    if ((heapMb > 140 || rssMb > 250) && typeof global.gc === "function") {
       global.gc();
     }
-  }, 15 * 1000);
+  }, 10 * 1000);
 }
 
 function createServer(ctx: ServerContext): http.Server {
@@ -200,7 +199,7 @@ function createServer(ctx: ServerContext): http.Server {
     serveStatic(url.pathname, res);
   });
 
-  server.listen(PORT, "0.0.0.0", () => {
+  server.listen(PORT, () => {
     console.log(`Dashboard: http://localhost:${PORT}`);
   });
 
@@ -318,7 +317,7 @@ function handleApi(
     case "/api/tasks": {
       const now = Date.now();
       const cached = (ctx as any)._tasksCache;
-      if (cached && now - cached.timestamp < 1000) {
+      if (cached && now - cached.timestamp < 4000) {
         json(res, cached.payload);
         break;
       }
@@ -478,7 +477,6 @@ function handleApi(
         destinationWallet: process.env.TREASURY_ADDRESS || "0xfdCE8864Ab96584102354Eb2d270187E0E900492",
         earnings: dbGetEarnings(),
       });
-      void autoSettlePendingEarnings().catch(() => {});
       break;
 
     case "/api/rpc-mesh":
@@ -1108,6 +1106,11 @@ function serveStatic(pathname: string, res: http.ServerResponse) {
     ".png": "image/png",
   };
 
-  res.writeHead(200, { "Content-Type": mimeTypes[ext] ?? "text/plain" });
+  const isAsset = filePath.includes(path.sep + "assets" + path.sep);
+  const cacheHeader = isAsset ? "public, max-age=86400, immutable" : "no-cache";
+  res.writeHead(200, {
+    "Content-Type": mimeTypes[ext] ?? "text/plain",
+    "Cache-Control": cacheHeader,
+  });
   fs.createReadStream(filePath).pipe(res);
 }
