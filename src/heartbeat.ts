@@ -226,7 +226,21 @@ export function createHeartbeat(
     try {
       const result: LoopResult = await runAgentLoop(llm, task, config);
       const toolNames = result.toolCalls.map((tc) => tc.name).join(", ");
-      const hasSubmit = result.toolCalls.some((tc) => tc.name === "submit_work");
+      let hasSubmit = result.toolCalls.some((tc) => tc.name === "submit_work");
+
+      // Auto-Submit Fallback: If model provided code solution in reasoning or reached turn limit with code
+      if (!hasSubmit && result.reasoning) {
+        const hasCodeBlock = result.reasoning.includes("```") || /###?\s*(?:Target\s+)?File/i.test(result.reasoning);
+        if (hasCodeBlock) {
+          appendLog(`⚡ [Auto-Submit Fallback] Detected code solution in LLM output for task ${task.id}. Auto-submitting work to dispatch PR...`);
+          try {
+            await cli.submitWork(task.id, result.reasoning);
+            hasSubmit = true;
+          } catch (submitErr: any) {
+            appendLog(`⚠️ [Auto-Submit Fallback] Failed to auto-submit: ${submitErr.message}`);
+          }
+        }
+      }
 
       emit({
         type: "loop_complete",

@@ -102,6 +102,14 @@ export async function runAgentLoop(
     }
 
     messages.push({ role: "user" as const, content: toolResults });
+
+    // Turn Budget Warning: When turn >= 1 and submit_work hasn't been called, inject urgency reminder
+    if (turn >= 1 && turn < maxTurns - 1 && !allToolCalls.some((tc) => tc.name === "submit_work")) {
+      messages.push({
+        role: "user" as const,
+        content: `⚠️ TURN ${turn + 1}/${maxTurns} NOTICE: You have gathered repo/issue context. You must now write the complete production code and call submit_work immediately. Do not call any more exploratory tools.`,
+      });
+    }
   }
 
   return {

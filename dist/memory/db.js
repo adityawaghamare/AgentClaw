@@ -150,10 +150,15 @@ function ensureDirs() {
 }
 var dbPath = ensureDirs();
 var sqlite = new sqlite3.Database(dbPath);
+var lastTursoErrorLog = 0;
 function runQuery(sql, args = []) {
   if (libsql) {
     libsql.execute({ sql, args }).catch((err) => {
-      console.error("[Turso DB] Exec Error:", err.message);
+      const now = Date.now();
+      if (now - lastTursoErrorLog > 3e4) {
+        lastTursoErrorLog = now;
+        console.warn("[Turso DB] Cloud sync intermittent:", err.message);
+      }
     });
   }
   sqlite.run(sql, args);

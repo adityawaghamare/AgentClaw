@@ -19214,10 +19214,15 @@ function ensureDirs() {
 }
 var dbPath = ensureDirs();
 var sqlite = new sqlite3.Database(dbPath);
+var lastTursoErrorLog = 0;
 function runQuery(sql, args = []) {
   if (libsql) {
     libsql.execute({ sql, args }).catch((err) => {
-      console.error("[Turso DB] Exec Error:", err.message);
+      const now = Date.now();
+      if (now - lastTursoErrorLog > 3e4) {
+        lastTursoErrorLog = now;
+        console.warn("[Turso DB] Cloud sync intermittent:", err.message);
+      }
     });
   }
   sqlite.run(sql, args);
@@ -20682,7 +20687,7 @@ function createOpenAICompatibleProvider(config, baseUrl) {
       }
       const configuredGemini = process.env.LLM_MODEL || config.model || "gemini-3.5-flash-lite";
       const GEMINI_MODEL_CASCADE = process.env.GEMINI_MODELS ? process.env.GEMINI_MODELS.split(",").map((m) => m.trim()) : Array.from(/* @__PURE__ */ new Set([configuredGemini, "gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-3.5-flash"]));
-      const GROQ_MODEL_CASCADE = process.env.GROQ_MODELS ? process.env.GROQ_MODELS.split(",").map((m) => m.trim()) : ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.6-27b"];
+      const GROQ_MODEL_CASCADE = process.env.GROQ_MODELS ? process.env.GROQ_MODELS.split(",").map((m) => m.trim()) : ["qwen/qwen3.8-27b", "openai/gpt-oss-120b", "openai/gpt-oss-20b"];
       const modelQueue = isOpenRouter ? autonomousAdapter.getModelQueue(config.model) : isGemini ? GEMINI_MODEL_CASCADE : isGroq ? GROQ_MODEL_CASCADE : [config.model];
       const limiter = isGemini ? geminiLimiter : isGroq ? groqLimiter : defaultLimiter;
       let lastError = null;
@@ -20692,11 +20697,20 @@ function createOpenAICompatibleProvider(config, baseUrl) {
       }
       for (let i = 0; i < modelQueue.length; i++) {
         const currentModel = modelQueue[i];
+        const openAiMsgs = toOpenAIMessages(messages);
+        let trimmedMsgs = openAiMsgs;
+        if (openAiMsgs.length > 20) {
+          const systemMsg = openAiMsgs[0]?.role === "system" ? openAiMsgs[0] : null;
+          let tail = openAiMsgs.slice(-18);
+          while (tail.length > 0 && tail[0].role === "tool") {
+            tail.shift();
+          }
+          trimmedMsgs = systemMsg ? [systemMsg, ...tail] : tail;
+        }
         const body = {
           model: currentModel,
           max_tokens: 4096,
-          // Keep only last 20 half-turns (10 full turns) to prevent unbounded memory growth
-          messages: toOpenAIMessages(messages).slice(-20)
+          messages: trimmedMsgs
         };
         if (tools && tools.length > 0) {
           body.tools = toOpenAITools(tools);
@@ -21857,14 +21871,15 @@ var submitWork2 = {
     input_schema: {
       type: "object",
       properties: {
-        task_id: { type: "string", description: "The task ID to submit work for" },
+        task_id: { type: "string", description: "The task ID to submit work for (optional, defaults to current task)" },
         result: { type: "string", description: "The complete work deliverable" }
       },
-      required: ["task_id", "result"]
+      required: ["result"]
     }
   },
-  async execute(input) {
-    const taskId = requireString(input, "task_id");
+  async execute(input, ctx) {
+    const taskId = input.task_id || ctx?.taskId;
+    if (!taskId) throw new Error("Missing required field: task_id");
     const result = requireString(input, "result");
     await submitWork(taskId, result);
     return { success: true, data: `Submitted work for task ${taskId}` };
@@ -22631,16 +22646,18 @@ Your skills: ${specialties}.
 You find open GitHub issues and bounties, solve them, and submit solutions. Every task is a revenue opportunity.
 Total earned so far: $${stats.totalEarningsUsd.toFixed(2)} | Tasks executed: ${stats.totalTasksExecuted} | Tasks discovered: ${stats.totalTasksDiscovered}
 
-## EXECUTION PROTOCOL
+## \u26A1 TIME-TO-PR PROTOCOL (STRICT 3-TURN LIMIT)
 
-For EVERY task that comes in:
+Speed beats perfection. Maintainers and bounties reward fast, precise solutions.
+Do NOT get trapped in endless exploration loops! You must complete your work within 3 turns:
 
-1. **READ** the task description carefully. Extract the GitHub issue URL.
-2. **FETCH ISSUE** using \`fetch_github_issue\` to understand the bug, error, or requested feature.
-3. **EXPLORE REPO**: Use \`list_github_repo_files\` to inspect the target repository's structure and locate the exact file to fix or where a new file belongs.
-4. **READ FILE**: Use \`fetch_github_file\` to read the existing code of the target file before modifying it.
-5. **SOLVE**: Write the real production code. No placeholders. No outlines.
-6. **SUBMIT**: Use \`submit_work\` with the target file path and complete code.
+1. **TURN 1 (INSPECT)**: Use \`fetch_github_issue\` (or \`read_task\`) to read the issue and identify the bug/feature.
+2. **TURN 2 (TARGET)**: Use \`list_github_repo_files\` or \`fetch_github_file\` to locate and read the target source file.
+3. **TURN 3 (FINAL ACTION \u2014 SUBMIT)**: Write the production code and CALL \`submit_work\` IMMEDIATELY.
+   - You MUST call \`submit_work\` by Turn 3.
+   - NEVER call more exploratory tools once you understand the problem.
+   - Do NOT endlessly read unrelated files or loop through directory trees.
+   - When calling \`submit_work\`, include the natural human PR description and the \`### Target File: path/to/file.ext\` code block.
 
 ## WHAT YOU DELIVER
 
@@ -22862,6 +22879,12 @@ async function runAgentLoop(llm, task, config) {
       toolResults.push(resultBlock);
     }
     messages.push({ role: "user", content: toolResults });
+    if (turn >= 1 && turn < maxTurns - 1 && !allToolCalls.some((tc) => tc.name === "submit_work")) {
+      messages.push({
+        role: "user",
+        content: `\u26A0\uFE0F TURN ${turn + 1}/${maxTurns} NOTICE: You have gathered repo/issue context. You must now write the complete production code and call submit_work immediately. Do not call any more exploratory tools.`
+      });
+    }
   }
   return {
     toolCalls: allToolCalls,
@@ -23418,7 +23441,19 @@ function createHeartbeat(config, llm) {
     try {
       const result = await runAgentLoop(llm, task, config);
       const toolNames = result.toolCalls.map((tc) => tc.name).join(", ");
-      const hasSubmit = result.toolCalls.some((tc) => tc.name === "submit_work");
+      let hasSubmit = result.toolCalls.some((tc) => tc.name === "submit_work");
+      if (!hasSubmit && result.reasoning) {
+        const hasCodeBlock = result.reasoning.includes("```") || /###?\s*(?:Target\s+)?File/i.test(result.reasoning);
+        if (hasCodeBlock) {
+          appendLog(`\u26A1 [Auto-Submit Fallback] Detected code solution in LLM output for task ${task.id}. Auto-submitting work to dispatch PR...`);
+          try {
+            await submitWork(task.id, result.reasoning);
+            hasSubmit = true;
+          } catch (submitErr) {
+            appendLog(`\u26A0\uFE0F [Auto-Submit Fallback] Failed to auto-submit: ${submitErr.message}`);
+          }
+        }
+      }
       emit({
         type: "loop_complete",
         taskId: task.id,
