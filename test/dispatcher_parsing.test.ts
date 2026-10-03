@@ -4,6 +4,7 @@ import {
   resolveFilePathAgainstTree,
   normalizeRepoPath,
   sanitizeCodeContent,
+  parseHumanPrContent,
 } from "../src/dispatch/github.js";
 
 describe("GitHub Dispatcher - Path Resolution & Tree Matching", () => {
@@ -143,3 +144,63 @@ export const memoryGuard = () => {};
     expect(files[0].path).toBe("src/types/state.ts");
   });
 });
+
+describe("GitHub Dispatcher - Humanized Output & PR Content", () => {
+  it("should extract natural human PR title and clean narrative body without code blocks", () => {
+    const rawSolution = `Title: fix(auth): prevent crash on expired session token
+
+Took a look at this — noticed that when a session expired, verifySession() was accessing userId before checking if decode was null.
+
+Added an early guard check so it cleanly returns 401. Also added a regression test to cover expired sessions.
+
+Tested locally with npm test and all suites pass.
+
+### Target File: src/auth.ts
+\`\`\`ts
+export function verifySession(token: string) {
+  if (!token) return null;
+  return { id: "123" };
+}
+\`\`\`
+`;
+
+    const targetFiles = [{ path: "src/auth.ts", content: "..." }];
+    const parsed = parseHumanPrContent(rawSolution, "42", targetFiles);
+
+    expect(parsed.title).toBe("fix(auth): prevent crash on expired session token");
+    expect(parsed.prBody).toContain("Closes #42");
+    expect(parsed.prBody).toContain("verifySession() was accessing userId");
+    expect(parsed.prBody).toContain("Added an early guard check");
+    expect(parsed.prBody).not.toContain("```");
+    expect(parsed.prBody).not.toContain("export function");
+    expect(parsed.prBody).not.toContain("### Target File");
+    expect(parsed.prBody).not.toContain("💰");
+    expect(parsed.prBody).not.toContain("Payout Address");
+  });
+
+  it("should generate a friendly human issue comment referencing PR without crypto spam", () => {
+    const rawSolution = `
+Took a look at this — traced the issue to a missing null guard in auth middleware.
+
+Added a quick check and tested locally.
+
+### Target File: src/middleware/auth.ts
+\`\`\`ts
+export const auth = () => {};
+\`\`\`
+`;
+
+    const targetFiles = [{ path: "src/middleware/auth.ts", content: "..." }];
+    const prUrl = "https://github.com/org/repo/pull/99";
+    const parsed = parseHumanPrContent(rawSolution, "84", targetFiles, prUrl);
+
+    expect(parsed.commentBody).toContain("Just put up a PR for this in #99 (https://github.com/org/repo/pull/99)");
+    expect(parsed.commentBody).toContain("missing null guard in auth middleware");
+    expect(parsed.commentBody).toContain("happy to adjust");
+    expect(parsed.commentBody).not.toContain("```");
+    expect(parsed.commentBody).not.toContain("💰");
+    expect(parsed.commentBody).not.toContain("Payout Address");
+    expect(parsed.commentBody).not.toContain("### 🔀 Pull Request Created");
+  });
+});
+
