@@ -76,15 +76,14 @@ export const submitWork: Tool = {
     input_schema: {
       type: "object",
       properties: {
-        task_id: { type: "string", description: "The task ID to submit work for (optional, defaults to current task)" },
+        task_id: { type: "string", description: "The task ID to submit work for" },
         result: { type: "string", description: "The complete work deliverable" },
       },
-      required: ["result"],
+      required: ["task_id", "result"],
     },
   },
-  async execute(input, ctx) {
-    const taskId = (input.task_id as string) || ctx?.taskId;
-    if (!taskId) throw new Error("Missing required field: task_id");
+  async execute(input) {
+    const taskId = requireString(input, "task_id");
     const result = requireString(input, "result");
     await cli.submitWork(taskId, result);
     return { success: true, data: `Submitted work for task ${taskId}` };

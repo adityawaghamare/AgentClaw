@@ -148,7 +148,7 @@ async function pollAllCategoryAPlatforms() {
       () => pollGitHubQuery("bounty", "github_open_bounties", "Open Bounty & Crypto Grants"),
     ];
 
-    const chunkSize = 3;
+    const chunkSize = 4;
     for (let i = 0; i < queries.length; i += chunkSize) {
       const chunk = queries.slice(i, i + chunkSize);
       const batchResults = await Promise.allSettled(chunk.map((fn) => fn()));
@@ -156,10 +156,6 @@ async function pollAllCategoryAPlatforms() {
         if (res.status === "fulfilled") {
           items.push(...res.value);
         }
-      }
-      // Rate-limiting delay: wait 1.5s between batches to respect GitHub Search quota (max 30 req/min)
-      if (i + chunkSize < queries.length) {
-        await new Promise((r) => setTimeout(r, 1500));
       }
     }
 
@@ -217,15 +213,11 @@ async function pollGitHubQuery(query: string, platformId: string, sourceName: st
     };
 
     if (process.env.GITHUB_TOKEN) {
-      const tok = process.env.GITHUB_TOKEN;
-      headers["Authorization"] = tok.startsWith("github_pat_") || tok.startsWith("ghp_") ? `Bearer ${tok}` : `token ${tok}`;
+      headers["Authorization"] = `token ${process.env.GITHUB_TOKEN}`;
     }
 
     const res = await fetch(url, { headers });
     if (!res.ok) {
-      if (res.status === 403 || res.status === 429) {
-        console.warn(`[Category A] ⏳ GitHub Search rate limited (${res.status}) on "${query}". Backing off.`);
-      }
       updateStat(platformId, 0);
       return [];
     }

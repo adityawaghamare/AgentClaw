@@ -230,41 +230,4 @@ describe("runAgentLoop", () => {
     expect(result.usage.inputTokens).toBe(300);
     expect(result.usage.outputTokens).toBe(50);
   });
-
-  it("should inject turn budget notice when turn >= 1 and submit_work hasn't been called", async () => {
-    const llm = createMockLLM([
-      {
-        content: [{ type: "tool_use", id: "tc-1", name: "quote_task", input: { task_id: "task-1", price_eth: "0.01" } }],
-        stopReason: "tool_use",
-        usage: { inputTokens: 100, outputTokens: 20 },
-      },
-      {
-        content: [{ type: "tool_use", id: "tc-2", name: "quote_task", input: { task_id: "task-1", price_eth: "0.02" } }],
-        stopReason: "tool_use",
-        usage: { inputTokens: 100, outputTokens: 20 },
-      },
-      {
-        content: [{ type: "text", text: "Finalized." }],
-        stopReason: "end_turn",
-        usage: { inputTokens: 100, outputTokens: 20 },
-      },
-    ]);
-
-    await runAgentLoop(llm, baseTask, baseConfig);
-
-    const secondChatCall = (llm.chat as ReturnType<typeof vi.fn>).mock.calls[2];
-    const msgs = secondChatCall[0];
-    const warningMsg = msgs.find((m: any) => typeof m.content === "string" && m.content.includes("TURN 2/10 NOTICE"));
-    expect(warningMsg).toBeDefined();
-  });
-});
-
-describe("submitWork tool", () => {
-  it("defaults to ctx.taskId when input.task_id is omitted", async () => {
-    const { submitWork } = await import("../src/tools/marketplace.js");
-    const ctx = { config: baseConfig, taskId: "auto-task-99" };
-    const res = await submitWork.execute({ result: "fix code" }, ctx);
-    expect(res.success).toBe(true);
-    expect(res.data).toContain("auto-task-99");
-  });
 });

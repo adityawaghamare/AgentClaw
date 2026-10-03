@@ -9,9 +9,12 @@ try {
   setGlobalDispatcher(
     new Agent({
       connections: 20,
-      pipelining: 1,
+      pipelining: 0,
       keepAliveTimeout: 10_000,
       keepAliveMaxTimeout: 15_000,
+      connect: {
+        timeout: 15_000,
+      },
     })
   );
 } catch {}

@@ -12,8 +12,8 @@
     "build": "tsup",
     "build:ui": "vite build",
     "build:all": "tsup && vite build",
-    "start": "node --expose-gc --max-old-space-size=512 dist/index.js",
-    "dev": "node --expose-gc --max-old-space-size=512 --import tsx src/index.ts",
+    "start": "node --dns-result-order=ipv4first --expose-gc --max-old-space-size=512 dist/index.js",
+    "dev": "node --dns-result-order=ipv4first --expose-gc --max-old-space-size=512 --import tsx src/index.ts",
     "migrate:daily": "node --env-file=.env --import tsx scripts/safe_repo_migrator.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"

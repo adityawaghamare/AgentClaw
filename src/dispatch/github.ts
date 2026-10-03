@@ -509,18 +509,27 @@ export async function dispatchGitHubSolution(
               });
 
               if (forkRes.ok || forkRes.status === 202) {
-                await new Promise((r) => setTimeout(r, 2500));
+                // Poll until the fork is fully provisioned on GitHub (up to 12s)
+                let forkBaseSha: string | null = null;
+                for (let attempt = 1; attempt <= 6; attempt++) {
+                  await new Promise((r) => setTimeout(r, 2000));
+                  try {
+                    const forkRefRes = await fetch(
+                      `https://api.github.com/repos/${authenticatedUser}/${repo}/git/ref/heads/${defaultBranch}`,
+                      { headers: authHeaders }
+                    );
+                    if (forkRefRes.ok) {
+                      const forkRefData = (await forkRefRes.json()) as any;
+                      forkBaseSha = forkRefData.object?.sha;
+                      if (forkBaseSha) break;
+                    }
+                  } catch (pollErr: any) {
+                    // Retrying
+                  }
+                  console.log(`[GitHub Dispatch] Waiting for fork ${authenticatedUser}/${repo} to sync (attempt ${attempt}/6)...`);
+                }
 
-                // 3. Get fork default branch ref
-                const forkRefRes = await fetch(
-                  `https://api.github.com/repos/${authenticatedUser}/${repo}/git/ref/heads/${defaultBranch}`,
-                  { headers: authHeaders }
-                );
-
-                if (forkRefRes.ok) {
-                  const forkRefData = (await forkRefRes.json()) as any;
-                  const forkBaseSha = forkRefData.object.sha;
-
+                if (forkBaseSha) {
                   // 4. Commit files to fork via Git Data API
                   await commitFilesWithGitDataApi(
                     authenticatedUser,
@@ -552,15 +561,25 @@ export async function dispatchGitHubSolution(
                     createdPrUrl = prData.html_url;
                     appendLog(`🔀 [GitHub Dispatch] Created Fork-based Pull Request #${prData.number}: ${createdPrUrl}`);
                     prSafetyGuard.recordPrDispatch(`${owner}/${repo}`, createdPrUrl, url);
+                    prCreated = true;
+                  } else {
+                    const prErrText = await forkPrRes.text();
+                    console.warn(`[GitHub Dispatch] Fork PR API returned ${forkPrRes.status}: ${prErrText}`);
                   }
+                } else {
+                  console.warn(`[GitHub Dispatch] Fork ${authenticatedUser}/${repo} provisioning timed out or branch unavailable.`);
                 }
+              } else {
+                const forkErrText = await forkRes.text();
+                console.warn(`[GitHub Dispatch] Fork request returned ${forkRes.status}: ${forkErrText}`);
               }
             }
           }
         }
       }
     } catch (prErr: any) {
-      console.warn(`[GitHub Dispatch] PR creation fallback to Issue Comment: ${prErr.message}`);
+      const detail = prErr.cause ? `${prErr.message} (${prErr.cause.message || prErr.cause})` : prErr.message;
+      console.warn(`[GitHub Dispatch] PR creation fallback to Issue Comment: ${detail}`);
     }
   }
 

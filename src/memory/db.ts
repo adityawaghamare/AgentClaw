@@ -52,15 +52,10 @@ function ensureDirs(): string {
 const dbPath = ensureDirs();
 const sqlite = new sqlite3.Database(dbPath);
 
-let lastTursoErrorLog = 0;
 function runQuery(sql: string, args: any[] = []): void {
   if (libsql) {
     libsql.execute({ sql, args }).catch((err) => {
-      const now = Date.now();
-      if (now - lastTursoErrorLog > 30000) {
-        lastTursoErrorLog = now;
-        console.warn("[Turso DB] Cloud sync intermittent:", err.message);
-      }
+      console.error("[Turso DB] Exec Error:", err.message);
     });
   }
   sqlite.run(sql, args);

@@ -34,19 +34,9 @@ export class SecureVaultManager {
   public initializeVault(passphrase?: string): boolean {
     let masterPass = passphrase || process.env.VAULT_PASSPHRASE || process.env.ADMIN_PASSWORD;
     if (!masterPass) {
-      const keyFilePath = path.join(process.cwd(), "data", ".vault_internal.key");
-      try {
-        if (fs.existsSync(keyFilePath)) {
-          masterPass = fs.readFileSync(keyFilePath, "utf8").trim();
-        } else {
-          masterPass = crypto.randomBytes(32).toString("hex");
-          const dir = path.dirname(keyFilePath);
-          if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-          fs.writeFileSync(keyFilePath, masterPass, { encoding: "utf8", mode: 0o600 });
-        }
-      } catch {
-        masterPass = crypto.randomBytes(32).toString("hex");
-      }
+      console.warn("⚠️ [Security Vault] WARNING: Neither VAULT_PASSPHRASE nor ADMIN_PASSWORD found in environment variables.");
+      console.warn("🔒 [Security Vault] Option A Active: Generating ephemeral cryptographically random 256-bit runtime key.");
+      masterPass = crypto.randomBytes(32).toString("hex");
     }
     
     // Check if vault already exists in SQLite DB

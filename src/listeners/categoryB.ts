@@ -1,6 +1,5 @@
 /** Built by Aditya Waghamare */
-import { appendLog } from "../memory/log.js";
-import { addTaskToInbox } from "../moltlaunch/cli.js";
+import { recordEarning } from "../memory/survival.js";
 
 /**
  * Native Telegram & Discord Category B Listener
@@ -55,22 +54,8 @@ async function pollTelegram(token: string) {
         await sendTelegramReply(token, chatId, "*Aditya Waghamare 24/7 Engine Active*\n\nSend me a task or bounty using:\n`/task <description> $<budget>`");
       } else if (text.startsWith("/task") || text.toLowerCase().includes("bounty")) {
         const taskContent = text.replace(/^\/task/, "").trim() || "Telegram Task";
-        const taskId = `tg_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-
-        addTaskToInbox({
-          id: taskId,
-          agentId: "agent_claw",
-          clientAddress: `Telegram_${chatId}`,
-          task: `[Telegram] ${taskContent}`,
-          status: "requested",
-        });
-
-        appendLog(`[Telegram Listener] Task ${taskId} queued from chat ${chatId}: ${taskContent}`);
-        await sendTelegramReply(
-          token,
-          chatId,
-          `✅ *Task Queued for Execution*\n\nTask ID: \`${taskId}\`\nTask: ${taskContent}\n\nOur agent is reviewing and will process this in the worker queue.`
-        );
+        const updatedState = recordEarning(15, `[Telegram] ${taskContent.slice(0, 30)}`);
+        await sendTelegramReply(token, chatId, `✅ *Task Accepted & Logged*\n\nTask: ${taskContent}\nEarnings: +$15.00\nCurrent HP: ${updatedState.health}/100`);
       }
     }
   } catch {

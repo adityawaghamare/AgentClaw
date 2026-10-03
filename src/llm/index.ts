@@ -267,7 +267,7 @@ function createOpenAICompatibleProvider(
         : Array.from(new Set([configuredGemini, "gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-3.5-flash"]));
       const GROQ_MODEL_CASCADE = process.env.GROQ_MODELS
         ? process.env.GROQ_MODELS.split(",").map((m) => m.trim())
-        : ["qwen/qwen3.8-27b", "openai/gpt-oss-120b", "openai/gpt-oss-20b"];
+        : ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.6-27b"];
 
       // Build model candidate queue using Autonomous Model Adapter
       const modelQueue = isOpenRouter
@@ -295,22 +295,11 @@ function createOpenAICompatibleProvider(
 
       for (let i = 0; i < modelQueue.length; i++) {
         const currentModel = modelQueue[i];
-        const openAiMsgs = toOpenAIMessages(messages) as Array<Record<string, unknown>>;
-        let trimmedMsgs = openAiMsgs;
-        if (openAiMsgs.length > 20) {
-          const systemMsg = openAiMsgs[0]?.role === "system" ? openAiMsgs[0] : null;
-          let tail = openAiMsgs.slice(-18);
-          // If first message in tail is an orphaned tool response, drop it
-          while (tail.length > 0 && tail[0].role === "tool") {
-            tail.shift();
-          }
-          trimmedMsgs = systemMsg ? [systemMsg, ...tail] : tail;
-        }
-
         const body: Record<string, unknown> = {
           model: currentModel,
           max_tokens: 4096,
-          messages: trimmedMsgs,
+          // Keep only last 20 half-turns (10 full turns) to prevent unbounded memory growth
+          messages: toOpenAIMessages(messages).slice(-20),
         };
 
         if (tools && tools.length > 0) {
@@ -362,9 +351,11 @@ function createOpenAICompatibleProvider(
               throw new Error(`LLM API 401 Unauthorized: ${providerName} key (...${activeKey.slice(-4)}) invalid or expired.`);
             }
 
-            // Autonomously handle 404 / 410 / 400 model deprecation or non-tool errors
-            if (res.status === 404 || res.status === 410 || res.status === 400) {
+            // Autonomously handle 404 / 410 model deprecation
+            if (res.status === 404 || res.status === 410) {
               autonomousAdapter.reportModelFailure(currentModel, res.status, errText);
+            } else if (res.status === 400) {
+              console.warn(`[LLM Router Warning] ${currentModel} returned 400: ${errText.slice(0, 120)}... Cascading to next model.`);
             } else if (res.status === 413) {
               // Payload too large for this model's context window — cascade to next model
               console.warn(`[LLM Router] ${currentModel} rejected payload (413 too large). Cascading...`);
