@@ -449,9 +449,12 @@ function createOpenAICompatibleProvider(
               // Gemini 3.x models require this field to be preserved and re-injected
               // in subsequent multi-turn tool-calling requests or they return HTTP 400.
               const tcAny = tc as any;
+              const msgAny = choice.message as any;
               const thoughtSig =
                 tcAny.extra_content?.google?.thought_signature ||
                 tcAny.extra_content?.thought_signature ||
+                msgAny.extra_content?.google?.thought_signature ||
+                msgAny.extra_content?.thought_signature ||
                 tcAny.thought_signature ||
                 tcAny.function?.thought_signature ||
                 tcAny.function?.extra_content?.thought_signature ||

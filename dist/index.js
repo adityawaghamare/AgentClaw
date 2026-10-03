@@ -20797,7 +20797,8 @@ function createOpenAICompatibleProvider(config, baseUrl) {
                 input = { _raw: tc.function.arguments, _error: "malformed JSON from LLM" };
               }
               const tcAny = tc;
-              const thoughtSig = tcAny.extra_content?.google?.thought_signature || tcAny.extra_content?.thought_signature || tcAny.thought_signature || tcAny.function?.thought_signature || tcAny.function?.extra_content?.thought_signature || void 0;
+              const msgAny = choice.message;
+              const thoughtSig = tcAny.extra_content?.google?.thought_signature || tcAny.extra_content?.thought_signature || msgAny.extra_content?.google?.thought_signature || msgAny.extra_content?.thought_signature || tcAny.thought_signature || tcAny.function?.thought_signature || tcAny.function?.extra_content?.thought_signature || void 0;
               content.push({
                 type: "tool_use",
                 id: tc.id,
