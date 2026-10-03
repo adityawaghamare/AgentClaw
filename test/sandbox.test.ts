@@ -92,4 +92,17 @@ describe("Sandbox Execution & Secret Scrubbing", () => {
     const result = await executeInSandbox("while(true){}", { timeoutMs: 1000 });
     expect(result.exitCode).not.toBe(0);
   });
+
+  it("should block access to dangerous process execution modules in subprocess sandbox", async () => {
+    const result = await executeInSandbox("require('child_process')", { timeoutMs: 5000 });
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("restricted in quarantined sandbox");
+  });
+
+  it("should block attempts to access sensitive files (.env) in subprocess sandbox", async () => {
+    const result = await executeInSandbox("require('fs').readFileSync('.env')", { timeoutMs: 5000 });
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("Sandbox Security Violation");
+  });
 });
+

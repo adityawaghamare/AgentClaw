@@ -1248,14 +1248,14 @@ var require_util = __commonJS({
         }
         const port = url.port != null ? url.port : url.protocol === "https:" ? 443 : 80;
         let origin = url.origin != null ? url.origin : `${url.protocol || ""}//${url.hostname || ""}:${port}`;
-        let path13 = url.path != null ? url.path : `${url.pathname || ""}${url.search || ""}`;
+        let path14 = url.path != null ? url.path : `${url.pathname || ""}${url.search || ""}`;
         if (origin[origin.length - 1] === "/") {
           origin = origin.slice(0, origin.length - 1);
         }
-        if (path13 && path13[0] !== "/") {
-          path13 = `/${path13}`;
+        if (path14 && path14[0] !== "/") {
+          path14 = `/${path14}`;
         }
-        return new URL(`${origin}${path13}`);
+        return new URL(`${origin}${path14}`);
       }
       if (!isHttpOrHttpsPrefixed(url.origin || url.protocol)) {
         throw new InvalidArgumentError("Invalid URL protocol: the URL must start with `http:` or `https:`.");
@@ -1706,39 +1706,39 @@ var require_diagnostics = __commonJS({
       });
       diagnosticsChannel.channel("undici:client:sendHeaders").subscribe((evt) => {
         const {
-          request: { method, path: path13, origin }
+          request: { method, path: path14, origin }
         } = evt;
-        debuglog("sending request to %s %s/%s", method, origin, path13);
+        debuglog("sending request to %s %s/%s", method, origin, path14);
       });
       diagnosticsChannel.channel("undici:request:headers").subscribe((evt) => {
         const {
-          request: { method, path: path13, origin },
+          request: { method, path: path14, origin },
           response: { statusCode }
         } = evt;
         debuglog(
           "received response to %s %s/%s - HTTP %d",
           method,
           origin,
-          path13,
+          path14,
           statusCode
         );
       });
       diagnosticsChannel.channel("undici:request:trailers").subscribe((evt) => {
         const {
-          request: { method, path: path13, origin }
+          request: { method, path: path14, origin }
         } = evt;
-        debuglog("trailers received from %s %s/%s", method, origin, path13);
+        debuglog("trailers received from %s %s/%s", method, origin, path14);
       });
       diagnosticsChannel.channel("undici:request:error").subscribe((evt) => {
         const {
-          request: { method, path: path13, origin },
+          request: { method, path: path14, origin },
           error
         } = evt;
         debuglog(
           "request to %s %s/%s errored - %s",
           method,
           origin,
-          path13,
+          path14,
           error.message
         );
       });
@@ -1787,9 +1787,9 @@ var require_diagnostics = __commonJS({
         });
         diagnosticsChannel.channel("undici:client:sendHeaders").subscribe((evt) => {
           const {
-            request: { method, path: path13, origin }
+            request: { method, path: path14, origin }
           } = evt;
-          debuglog("sending request to %s %s/%s", method, origin, path13);
+          debuglog("sending request to %s %s/%s", method, origin, path14);
         });
       }
       diagnosticsChannel.channel("undici:websocket:open").subscribe((evt) => {
@@ -1852,7 +1852,7 @@ var require_request = __commonJS({
     var kHandler = /* @__PURE__ */ Symbol("handler");
     var Request = class {
       constructor(origin, {
-        path: path13,
+        path: path14,
         method,
         body,
         headers,
@@ -1867,11 +1867,11 @@ var require_request = __commonJS({
         expectContinue,
         servername
       }, handler) {
-        if (typeof path13 !== "string") {
+        if (typeof path14 !== "string") {
           throw new InvalidArgumentError("path must be a string");
-        } else if (path13[0] !== "/" && !(path13.startsWith("http://") || path13.startsWith("https://")) && method !== "CONNECT") {
+        } else if (path14[0] !== "/" && !(path14.startsWith("http://") || path14.startsWith("https://")) && method !== "CONNECT") {
           throw new InvalidArgumentError("path must be an absolute URL or start with a slash");
-        } else if (invalidPathRegex.test(path13)) {
+        } else if (invalidPathRegex.test(path14)) {
           throw new InvalidArgumentError("invalid request path");
         }
         if (typeof method !== "string") {
@@ -1937,7 +1937,7 @@ var require_request = __commonJS({
         this.completed = false;
         this.aborted = false;
         this.upgrade = upgrade || null;
-        this.path = query ? buildURL(path13, query) : path13;
+        this.path = query ? buildURL(path14, query) : path14;
         this.origin = origin;
         this.idempotent = idempotent == null ? method === "HEAD" || method === "GET" : idempotent;
         this.blocking = blocking == null ? false : blocking;
@@ -6567,7 +6567,7 @@ var require_client_h1 = __commonJS({
       return method !== "GET" && method !== "HEAD" && method !== "OPTIONS" && method !== "TRACE" && method !== "CONNECT";
     }
     function writeH1(client, request) {
-      const { method, path: path13, host, upgrade, blocking, reset } = request;
+      const { method, path: path14, host, upgrade, blocking, reset } = request;
       let { body, headers, contentLength } = request;
       const expectsPayload = method === "PUT" || method === "POST" || method === "PATCH" || method === "QUERY" || method === "PROPFIND" || method === "PROPPATCH";
       if (util.isFormDataLike(body)) {
@@ -6642,7 +6642,7 @@ var require_client_h1 = __commonJS({
       if (blocking) {
         socket[kBlocking] = true;
       }
-      let header = `${method} ${path13} HTTP/1.1\r
+      let header = `${method} ${path14} HTTP/1.1\r
 `;
       if (typeof host === "string") {
         header += `host: ${host}\r
@@ -7168,7 +7168,7 @@ var require_client_h2 = __commonJS({
     }
     function writeH2(client, request) {
       const session = client[kHTTP2Session];
-      const { method, path: path13, host, upgrade, expectContinue, signal, headers: reqHeaders } = request;
+      const { method, path: path14, host, upgrade, expectContinue, signal, headers: reqHeaders } = request;
       let { body } = request;
       if (upgrade) {
         util.errorRequest(client, request, new Error("Upgrade not supported for H2"));
@@ -7235,7 +7235,7 @@ var require_client_h2 = __commonJS({
         });
         return true;
       }
-      headers[HTTP2_HEADER_PATH] = path13;
+      headers[HTTP2_HEADER_PATH] = path14;
       headers[HTTP2_HEADER_SCHEME] = "https";
       const expectsPayload = method === "PUT" || method === "POST" || method === "PATCH";
       if (body && typeof body.read === "function") {
@@ -7588,9 +7588,9 @@ var require_redirect_handler = __commonJS({
           return this.handler.onHeaders(statusCode, headers, resume, statusText);
         }
         const { origin, pathname, search } = util.parseURL(new URL(this.location, this.opts.origin && new URL(this.opts.path, this.opts.origin)));
-        const path13 = search ? `${pathname}${search}` : pathname;
+        const path14 = search ? `${pathname}${search}` : pathname;
         this.opts.headers = cleanRequestHeaders(this.opts.headers, statusCode === 303, this.opts.origin !== origin);
-        this.opts.path = path13;
+        this.opts.path = path14;
         this.opts.origin = origin;
         this.opts.maxRedirections = 0;
         this.opts.query = null;
@@ -8826,10 +8826,10 @@ var require_proxy_agent = __commonJS({
         };
         const {
           origin,
-          path: path13 = "/",
+          path: path14 = "/",
           headers = {}
         } = opts;
-        opts.path = origin + path13;
+        opts.path = origin + path14;
         if (!("host" in headers) && !("Host" in headers)) {
           const { host } = new URL2(origin);
           headers.host = host;
@@ -10780,20 +10780,20 @@ var require_mock_utils = __commonJS({
       }
       return true;
     }
-    function safeUrl(path13) {
-      if (typeof path13 !== "string") {
-        return path13;
+    function safeUrl(path14) {
+      if (typeof path14 !== "string") {
+        return path14;
       }
-      const pathSegments = path13.split("?");
+      const pathSegments = path14.split("?");
       if (pathSegments.length !== 2) {
-        return path13;
+        return path14;
       }
       const qp = new URLSearchParams(pathSegments.pop());
       qp.sort();
       return [...pathSegments, qp.toString()].join("?");
     }
-    function matchKey(mockDispatch2, { path: path13, method, body, headers }) {
-      const pathMatch = matchValue(mockDispatch2.path, path13);
+    function matchKey(mockDispatch2, { path: path14, method, body, headers }) {
+      const pathMatch = matchValue(mockDispatch2.path, path14);
       const methodMatch = matchValue(mockDispatch2.method, method);
       const bodyMatch = typeof mockDispatch2.body !== "undefined" ? matchValue(mockDispatch2.body, body) : true;
       const headersMatch = matchHeaders(mockDispatch2, headers);
@@ -10815,7 +10815,7 @@ var require_mock_utils = __commonJS({
     function getMockDispatch(mockDispatches, key) {
       const basePath = key.query ? buildURL(key.path, key.query) : key.path;
       const resolvedPath = typeof basePath === "string" ? safeUrl(basePath) : basePath;
-      let matchedMockDispatches = mockDispatches.filter(({ consumed }) => !consumed).filter(({ path: path13 }) => matchValue(safeUrl(path13), resolvedPath));
+      let matchedMockDispatches = mockDispatches.filter(({ consumed }) => !consumed).filter(({ path: path14 }) => matchValue(safeUrl(path14), resolvedPath));
       if (matchedMockDispatches.length === 0) {
         throw new MockNotMatchedError(`Mock dispatch not matched for path '${resolvedPath}'`);
       }
@@ -10853,9 +10853,9 @@ var require_mock_utils = __commonJS({
       }
     }
     function buildKey(opts) {
-      const { path: path13, method, body, headers, query } = opts;
+      const { path: path14, method, body, headers, query } = opts;
       return {
-        path: path13,
+        path: path14,
         method,
         body,
         headers,
@@ -11318,10 +11318,10 @@ var require_pending_interceptors_formatter = __commonJS({
       }
       format(pendingInterceptors) {
         const withPrettyHeaders = pendingInterceptors.map(
-          ({ method, path: path13, data: { statusCode }, persist, times, timesInvoked, origin }) => ({
+          ({ method, path: path14, data: { statusCode }, persist, times, timesInvoked, origin }) => ({
             Method: method,
             Origin: origin,
-            Path: path13,
+            Path: path14,
             "Status code": statusCode,
             Persistent: persist ? PERSISTENT : NOT_PERSISTENT,
             Invocations: timesInvoked,
@@ -16202,9 +16202,9 @@ var require_util6 = __commonJS({
         }
       }
     }
-    function validateCookiePath(path13) {
-      for (let i = 0; i < path13.length; ++i) {
-        const code = path13.charCodeAt(i);
+    function validateCookiePath(path14) {
+      for (let i = 0; i < path14.length; ++i) {
+        const code = path14.charCodeAt(i);
         if (code < 32 || // exclude CTLs (0-31)
         code > 126 || // exclude DEL and non-ascii
         code === 59) {
@@ -18935,11 +18935,11 @@ var require_undici = __commonJS({
           if (typeof opts.path !== "string") {
             throw new InvalidArgumentError("invalid opts.path");
           }
-          let path13 = opts.path;
+          let path14 = opts.path;
           if (!opts.path.startsWith("/")) {
-            path13 = `/${path13}`;
+            path14 = `/${path14}`;
           }
-          url = new URL(util.parseOrigin(url).origin + path13);
+          url = new URL(util.parseOrigin(url).origin + path14);
         } else {
           if (!opts) {
             opts = typeof url === "object" ? url : {};
@@ -19016,9 +19016,9 @@ import dns3 from "dns";
 // src/agent.ts
 init_config();
 import http3 from "http";
-import fs12 from "fs";
+import fs13 from "fs";
 import os6 from "os";
-import path12 from "path";
+import path13 from "path";
 import { WebSocketServer, WebSocket as WebSocket2 } from "ws";
 
 // src/llm/adaptation.ts
@@ -22405,10 +22405,53 @@ async function runInDockerSandbox(command, options, startTime, timeoutMs, maxMem
 async function runInRestrictedSubprocessSandbox(command, options, startTime, timeoutMs, maxMemoryMb) {
   return new Promise((resolve) => {
     const workDir = options.workDir || SANDBOX_TMP_DIR;
-    const scriptId = `sandbox_${Date.now()}_${Math.random().toString(36).substring(2, 7)}.js`;
+    const scriptId = `sandbox_${Date.now()}_${Math.random().toString(36).substring(2, 7)}.cjs`;
     const scriptPath = path10.join(workDir, scriptId);
     const safeWrapperCode = `
       // Quarantined Sandbox Isolation Wrapper
+      const path = require("node:path");
+      const Module = require("node:module");
+
+      // 1. Module Access Guard \u2014 block process execution and threading modules
+      const blockedModules = new Set([
+        "child_process", "node:child_process",
+        "cluster", "node:cluster",
+        "v8", "node:v8",
+        "vm", "node:vm",
+        "worker_threads", "node:worker_threads"
+      ]);
+
+      const origRequire = Module.prototype.require;
+      Module.prototype.require = function(id) {
+        if (blockedModules.has(id)) {
+          throw new Error("Access to module '" + id + "' is restricted in quarantined sandbox.");
+        }
+        return origRequire.apply(this, arguments);
+      };
+
+      // 2. Sensitive File Access Guard for fs
+      const fs = require("node:fs");
+      const sensitivePatterns = [/\\.env/i, /\\.ssh/i, /\\.cashclaw/i, /wallet\\.json/i, /vault/i, /\\.git/i];
+
+      function assertSafePath(targetPath) {
+        if (typeof targetPath !== "string") return;
+        const resolved = path.resolve(targetPath);
+        for (const p of sensitivePatterns) {
+          if (p.test(resolved)) {
+            throw new Error("Sandbox Security Violation: Access to sensitive file is prohibited.");
+          }
+        }
+      }
+
+      const origReadFile = fs.readFile;
+      fs.readFile = function(p, ...args) { assertSafePath(p); return origReadFile.call(fs, p, ...args); };
+      const origReadFileSync = fs.readFileSync;
+      fs.readFileSync = function(p, ...args) { assertSafePath(p); return origReadFileSync.call(fs, p, ...args); };
+      const origOpen = fs.open;
+      fs.open = function(p, ...args) { assertSafePath(p); return origOpen.call(fs, p, ...args); };
+      const origOpenSync = fs.openSync;
+      fs.openSync = function(p, ...args) { assertSafePath(p); return origOpenSync.call(fs, p, ...args); };
+
       try {
         ${command.includes("console.log") || command.includes(";") || command.includes("\n") ? command : `console.log(eval(${JSON.stringify(command)}));`}
       } catch (err) {
@@ -22952,6 +22995,8 @@ import { base as base2 } from "viem/chains";
 
 // src/security/vault.ts
 import crypto4 from "crypto";
+import fs11 from "fs";
+import path11 from "path";
 var ALGORITHM = "aes-256-gcm";
 var KEY_LENGTH = 32;
 var SALT_LENGTH = 16;
@@ -22972,9 +23017,19 @@ var SecureVaultManager = class {
   initializeVault(passphrase) {
     let masterPass = passphrase || process.env.VAULT_PASSPHRASE || process.env.ADMIN_PASSWORD;
     if (!masterPass) {
-      console.warn("\u26A0\uFE0F [Security Vault] WARNING: Neither VAULT_PASSPHRASE nor ADMIN_PASSWORD found in environment variables.");
-      console.warn("\u{1F512} [Security Vault] Option A Active: Generating ephemeral cryptographically random 256-bit runtime key.");
-      masterPass = crypto4.randomBytes(32).toString("hex");
+      const keyFilePath = path11.join(process.cwd(), "data", ".vault_internal.key");
+      try {
+        if (fs11.existsSync(keyFilePath)) {
+          masterPass = fs11.readFileSync(keyFilePath, "utf8").trim();
+        } else {
+          masterPass = crypto4.randomBytes(32).toString("hex");
+          const dir = path11.dirname(keyFilePath);
+          if (!fs11.existsSync(dir)) fs11.mkdirSync(dir, { recursive: true });
+          fs11.writeFileSync(keyFilePath, masterPass, { encoding: "utf8", mode: 384 });
+        }
+      } catch {
+        masterPass = crypto4.randomBytes(32).toString("hex");
+      }
     }
     let record = dbGetVaultRecord(this.vaultId);
     if (!record) {
@@ -23745,18 +23800,18 @@ init_knowledge();
 
 // src/memory/chat.ts
 init_config();
-import fs11 from "fs";
-import path11 from "path";
+import fs12 from "fs";
+import path12 from "path";
 import crypto5 from "crypto";
 var MAX_MESSAGES = 100;
 function getChatPath() {
-  return path11.join(getConfigDir(), "chat.json");
+  return path12.join(getConfigDir(), "chat.json");
 }
 function loadChat() {
   const p = getChatPath();
-  if (!fs11.existsSync(p)) return [];
+  if (!fs12.existsSync(p)) return [];
   try {
-    const raw = fs11.readFileSync(p, "utf-8");
+    const raw = fs12.readFileSync(p, "utf-8");
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
     return parsed.filter(
@@ -23771,17 +23826,17 @@ function appendChat(message) {
   messages.push(message);
   const trimmed = messages.slice(-MAX_MESSAGES);
   const p = getChatPath();
-  fs11.mkdirSync(path11.dirname(p), { recursive: true });
+  fs12.mkdirSync(path12.dirname(p), { recursive: true });
   const tmp = `${p}.${crypto5.randomUUID()}.tmp`;
-  fs11.writeFileSync(tmp, JSON.stringify(trimmed, null, 2));
-  fs11.renameSync(tmp, p);
+  fs12.writeFileSync(tmp, JSON.stringify(trimmed, null, 2));
+  fs12.renameSync(tmp, p);
 }
 function clearChat() {
   const p = getChatPath();
-  if (fs11.existsSync(p)) {
+  if (fs12.existsSync(p)) {
     const tmp = `${p}.${crypto5.randomUUID()}.tmp`;
-    fs11.writeFileSync(tmp, "[]");
-    fs11.renameSync(tmp, p);
+    fs12.writeFileSync(tmp, "[]");
+    fs12.renameSync(tmp, p);
   }
 }
 
@@ -23815,12 +23870,25 @@ async function pollTelegram(token) {
         await sendTelegramReply(token, chatId, "*Aditya Waghamare 24/7 Engine Active*\n\nSend me a task or bounty using:\n`/task <description> $<budget>`");
       } else if (text.startsWith("/task") || text.toLowerCase().includes("bounty")) {
         const taskContent = text.replace(/^\/task/, "").trim() || "Telegram Task";
-        const updatedState = recordEarning(15, `[Telegram] ${taskContent.slice(0, 30)}`);
-        await sendTelegramReply(token, chatId, `\u2705 *Task Accepted & Logged*
+        const taskId = `tg_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+        addTaskToInbox({
+          id: taskId,
+          agentId: "agent_claw",
+          clientAddress: `Telegram_${chatId}`,
+          task: `[Telegram] ${taskContent}`,
+          status: "requested"
+        });
+        appendLog(`[Telegram Listener] Task ${taskId} queued from chat ${chatId}: ${taskContent}`);
+        await sendTelegramReply(
+          token,
+          chatId,
+          `\u2705 *Task Queued for Execution*
 
+Task ID: \`${taskId}\`
 Task: ${taskContent}
-Earnings: +$15.00
-Current HP: ${updatedState.health}/100`);
+
+Our agent is reviewing and will process this in the worker queue.`
+        );
       }
     }
   } catch {
@@ -23930,7 +23998,7 @@ async function pollAllCategoryAPlatforms() {
       () => pollGitHubQuery("label:enhancement", "github_enhancement", "GitHub Enhancement Stream"),
       () => pollGitHubQuery("bounty", "github_open_bounties", "Open Bounty & Crypto Grants")
     ];
-    const chunkSize = 4;
+    const chunkSize = 3;
     for (let i = 0; i < queries.length; i += chunkSize) {
       const chunk = queries.slice(i, i + chunkSize);
       const batchResults = await Promise.allSettled(chunk.map((fn) => fn()));
@@ -23938,6 +24006,9 @@ async function pollAllCategoryAPlatforms() {
         if (res.status === "fulfilled") {
           items.push(...res.value);
         }
+      }
+      if (i + chunkSize < queries.length) {
+        await new Promise((r) => setTimeout(r, 1500));
       }
     }
     let newCount = 0;
@@ -23983,10 +24054,14 @@ async function pollGitHubQuery(query, platformId, sourceName) {
       "Accept": "application/vnd.github.v3+json"
     };
     if (process.env.GITHUB_TOKEN) {
-      headers["Authorization"] = `token ${process.env.GITHUB_TOKEN}`;
+      const tok = process.env.GITHUB_TOKEN;
+      headers["Authorization"] = tok.startsWith("github_pat_") || tok.startsWith("ghp_") ? `Bearer ${tok}` : `token ${tok}`;
     }
     const res = await fetch(url, { headers });
     if (!res.ok) {
+      if (res.status === 403 || res.status === 429) {
+        console.warn(`[Category A] \u23F3 GitHub Search rate limited (${res.status}) on "${query}". Backing off.`);
+      }
       updateStat(platformId, 0);
       return [];
     }
@@ -24076,7 +24151,7 @@ async function startAgent() {
   return server;
 }
 function startKeepAlive() {
-  const railwayUrl = process.env.RAILWAY_PUBLIC_DOMAIN ? process.env.RAILWAY_PUBLIC_DOMAIN.startsWith("http") ? process.env.RAILWAY_PUBLIC_DOMAIN : `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : process.env.RAILWAY_STATIC_URL ? process.env.RAILWAY_STATIC_URL.startsWith("http") ? process.env.RAILWAY_STATIC_URL : `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : null;
+  const railwayUrl = process.env.RAILWAY_PUBLIC_DOMAIN ? process.env.RAILWAY_PUBLIC_DOMAIN.startsWith("http") ? process.env.RAILWAY_PUBLIC_DOMAIN : `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : process.env.RAILWAY_STATIC_URL ? process.env.RAILWAY_STATIC_URL.startsWith("http") ? process.env.RAILWAY_STATIC_URL : `https://${process.env.RAILWAY_STATIC_URL}` : null;
   const externalUrl = process.env.RENDER_EXTERNAL_URL || process.env.PUBLIC_URL || railwayUrl || `http://localhost:${PORT}`;
   const pingIntervalMs = 8 * 60 * 1e3;
   console.log(`[Keep-Alive] \u{1F4E1} 24/7 Cloud Keep-Alive Pinger active (${externalUrl})`);
@@ -24343,6 +24418,10 @@ function handleApi(pathname, req, res, ctx) {
       if (req.method === "GET") {
         json(res, { messages: loadChat() });
       } else if (req.method === "POST") {
+        if (!isAuthorized(req)) {
+          json(res, { error: "Unauthorized" }, 401);
+          return;
+        }
         handleChat(req, res, ctx);
       } else {
         json(res, { error: "GET or POST" }, 405);
@@ -24351,6 +24430,10 @@ function handleApi(pathname, req, res, ctx) {
     case "/api/chat/clear":
       if (req.method !== "POST") {
         json(res, { error: "POST only" }, 405);
+        return;
+      }
+      if (!isAuthorized(req)) {
+        json(res, { error: "Unauthorized" }, 401);
         return;
       }
       clearChat();
@@ -24364,11 +24447,19 @@ function handleApi(pathname, req, res, ctx) {
         json(res, { error: "POST only" }, 405);
         return;
       }
+      if (!isAuthorized(req)) {
+        json(res, { error: "Unauthorized" }, 401);
+        return;
+      }
       json(res, reviveAgent());
       break;
     case "/api/survival/earn":
       if (req.method !== "POST") {
         json(res, { error: "POST only" }, 405);
+        return;
+      }
+      if (!isAuthorized(req)) {
+        json(res, { error: "Unauthorized" }, 401);
         return;
       }
       readBody(req).then((bodyStr) => {
@@ -24462,6 +24553,10 @@ function handleApi(pathname, req, res, ctx) {
         json(res, { error: "POST only" }, 405);
         return;
       }
+      if (!isAuthorized(req)) {
+        json(res, { error: "Unauthorized" }, 401);
+        return;
+      }
       readBody(req).then((bodyStr) => {
         try {
           const body = parseJsonBody(bodyStr);
@@ -24485,6 +24580,15 @@ function handleApi(pathname, req, res, ctx) {
         json(res, { error: "POST only" }, 405);
         return;
       }
+      {
+        const webhookSecret = process.env.WEBHOOK_SECRET;
+        const incomingSecret = req.headers["x-webhook-secret"] || req.headers["x-api-key"];
+        const isWebhookAuthed = webhookSecret ? incomingSecret === webhookSecret : isAuthorized(req);
+        if (!isWebhookAuthed) {
+          json(res, { error: "Unauthorized webhook caller" }, 401);
+          return;
+        }
+      }
       readBody(req).then(async (bodyStr) => {
         try {
           const body = parseJsonBody(bodyStr);
@@ -24494,14 +24598,21 @@ function handleApi(pathname, req, res, ctx) {
           }
           const platformName = body.platform || "Inbound Webhook";
           const amount = body.budgetUsd || 15;
-          const updated = recordEarning(amount, `[${platformName}] ${body.task.slice(0, 40)}`);
+          const taskId = `wh_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+          addTaskToInbox({
+            id: taskId,
+            agentId: "agent_claw",
+            clientAddress: platformName,
+            task: `[${platformName}] ${body.task}`,
+            status: "requested"
+          });
           json(res, {
             ok: true,
-            status: "accepted",
+            status: "queued",
+            taskId,
             platform: platformName,
             task: body.task,
-            earningsLogged: amount,
-            survivalState: updated
+            estimatedBudget: amount
           });
         } catch (err) {
           json(res, { error: err instanceof Error ? err.message : "Invalid webhook payload" }, 400);
@@ -24528,6 +24639,13 @@ function handleApi(pathname, req, res, ctx) {
   }
 }
 async function handleSetupApi(pathname, req, res, ctx) {
+  const isMutating = req.method === "POST";
+  if (ctx.mode === "running" || isConfigured() || isMutating) {
+    if (!isAuthorized(req)) {
+      json(res, { error: "Unauthorized setup access" }, 401);
+      return;
+    }
+  }
   try {
     switch (pathname) {
       case "/api/setup/status":
@@ -24573,8 +24691,8 @@ async function handleSetupApi(pathname, req, res, ctx) {
           const match = body.image.match(/^data:image\/(\w+);base64,(.+)$/);
           if (match) {
             const ext = match[1] === "jpeg" ? "jpg" : match[1];
-            imagePath = path12.join(os6.tmpdir(), `cashclaw-image-${Date.now()}.${ext}`);
-            fs12.writeFileSync(imagePath, Buffer.from(match[2], "base64"));
+            imagePath = path13.join(os6.tmpdir(), `cashclaw-image-${Date.now()}.${ext}`);
+            fs13.writeFileSync(imagePath, Buffer.from(match[2], "base64"));
           }
         }
         try {
@@ -24586,8 +24704,8 @@ async function handleSetupApi(pathname, req, res, ctx) {
           ctx.config = loadConfig();
           json(res, result);
         } finally {
-          if (imagePath && fs12.existsSync(imagePath)) {
-            fs12.unlinkSync(imagePath);
+          if (imagePath && fs13.existsSync(imagePath)) {
+            fs13.unlinkSync(imagePath);
           }
         }
         break;
@@ -24805,7 +24923,7 @@ async function handleEthPrice(res) {
     const now = Date.now();
     if (!ethPriceCache || now - ethPriceCache.fetchedAt > ETH_PRICE_CACHE_TTL) {
       const resp = await fetch(
-        "`https://${process.env.RAILWAY_PUBLIC_DOMAIN}`min-api.cryptocompare.com/data/price?fsym=ETH&tsyms=USD"
+        "https://min-api.cryptocompare.com/data/price?fsym=ETH&tsyms=USD"
       );
       const data = await resp.json();
       if (!data.USD) {
@@ -24896,24 +25014,24 @@ async function handleKnowledgeDelete(req, res) {
 }
 function serveStatic(pathname, res) {
   const baseDir = import.meta.dirname ?? __dirname;
-  const distUi = path12.join(baseDir, "..", "dist", "ui");
-  const uiDir = fs12.existsSync(path12.join(distUi, "index.html")) ? distUi : path12.join(baseDir, "ui");
-  const resolvedUiDir = path12.resolve(uiDir);
-  let filePath = path12.resolve(uiDir, pathname === "/" ? "index.html" : pathname.slice(1));
+  const distUi = path13.join(baseDir, "..", "dist", "ui");
+  const uiDir = fs13.existsSync(path13.join(distUi, "index.html")) ? distUi : path13.join(baseDir, "ui");
+  const resolvedUiDir = path13.resolve(uiDir);
+  let filePath = path13.resolve(uiDir, pathname === "/" ? "index.html" : pathname.slice(1));
   if (!filePath.startsWith(resolvedUiDir)) {
     res.writeHead(403);
     res.end("Forbidden");
     return;
   }
-  if (!path12.extname(filePath)) {
-    filePath = path12.join(resolvedUiDir, "index.html");
+  if (!path13.extname(filePath)) {
+    filePath = path13.join(resolvedUiDir, "index.html");
   }
-  if (!fs12.existsSync(filePath)) {
+  if (!fs13.existsSync(filePath)) {
     res.writeHead(404);
     res.end("Not found");
     return;
   }
-  const ext = path12.extname(filePath);
+  const ext = path13.extname(filePath);
   const mimeTypes = {
     ".html": "text/html",
     ".js": "application/javascript",
@@ -24922,13 +25040,13 @@ function serveStatic(pathname, res) {
     ".svg": "image/svg+xml",
     ".png": "image/png"
   };
-  const isAsset = filePath.includes(path12.sep + "assets" + path12.sep);
+  const isAsset = filePath.includes(path13.sep + "assets" + path13.sep);
   const cacheHeader = isAsset ? "public, max-age=86400, immutable" : "no-cache";
   res.writeHead(200, {
     "Content-Type": mimeTypes[ext] ?? "text/plain",
     "Cache-Control": cacheHeader
   });
-  fs12.createReadStream(filePath).pipe(res);
+  fs13.createReadStream(filePath).pipe(res);
 }
 
 // src/cluster/manager.ts

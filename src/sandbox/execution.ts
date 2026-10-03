@@ -136,12 +136,55 @@ async function runInRestrictedSubprocessSandbox(
 ): Promise<SandboxResult> {
   return new Promise((resolve) => {
     const workDir = options.workDir || SANDBOX_TMP_DIR;
-    const scriptId = `sandbox_${Date.now()}_${Math.random().toString(36).substring(2, 7)}.js`;
+    const scriptId = `sandbox_${Date.now()}_${Math.random().toString(36).substring(2, 7)}.cjs`;
     const scriptPath = path.join(workDir, scriptId);
 
-    // Isolate execution inside an evaluation wrapper
+    // Isolate execution inside an evaluation wrapper with filesystem & module guards
     const safeWrapperCode = `
       // Quarantined Sandbox Isolation Wrapper
+      const path = require("node:path");
+      const Module = require("node:module");
+
+      // 1. Module Access Guard — block process execution and threading modules
+      const blockedModules = new Set([
+        "child_process", "node:child_process",
+        "cluster", "node:cluster",
+        "v8", "node:v8",
+        "vm", "node:vm",
+        "worker_threads", "node:worker_threads"
+      ]);
+
+      const origRequire = Module.prototype.require;
+      Module.prototype.require = function(id) {
+        if (blockedModules.has(id)) {
+          throw new Error("Access to module '" + id + "' is restricted in quarantined sandbox.");
+        }
+        return origRequire.apply(this, arguments);
+      };
+
+      // 2. Sensitive File Access Guard for fs
+      const fs = require("node:fs");
+      const sensitivePatterns = [/\\.env/i, /\\.ssh/i, /\\.cashclaw/i, /wallet\\.json/i, /vault/i, /\\.git/i];
+
+      function assertSafePath(targetPath) {
+        if (typeof targetPath !== "string") return;
+        const resolved = path.resolve(targetPath);
+        for (const p of sensitivePatterns) {
+          if (p.test(resolved)) {
+            throw new Error("Sandbox Security Violation: Access to sensitive file is prohibited.");
+          }
+        }
+      }
+
+      const origReadFile = fs.readFile;
+      fs.readFile = function(p, ...args) { assertSafePath(p); return origReadFile.call(fs, p, ...args); };
+      const origReadFileSync = fs.readFileSync;
+      fs.readFileSync = function(p, ...args) { assertSafePath(p); return origReadFileSync.call(fs, p, ...args); };
+      const origOpen = fs.open;
+      fs.open = function(p, ...args) { assertSafePath(p); return origOpen.call(fs, p, ...args); };
+      const origOpenSync = fs.openSync;
+      fs.openSync = function(p, ...args) { assertSafePath(p); return origOpenSync.call(fs, p, ...args); };
+
       try {
         ${command.includes("console.log") || command.includes(";") || command.includes("\n") ? command : `console.log(eval(${JSON.stringify(command)}));`}
       } catch (err) {
